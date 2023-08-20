@@ -74,6 +74,10 @@ prediction = model.predict(df)
 st.header('Mitarbeiterabwanderung Ergebniss')
 st.write(prediction)
 st.write('---')
+if prediction == 1:
+    st.write('Der/Die Mitarbeirter/in ist nicht zufrieden und er/sie wird wahrscheinlich gehen')
+else:
+    st.write('Der Mitarbeiter ist zufrieden und er/sie bleibt bei uns')
 
 # Explaining the model's predictions using SHAP values
 # https://github.com/slundberg/shap
