@@ -17,6 +17,14 @@ data = pd.read_csv('HCM_Employee_Churn.csv')
 data.fillna(data.mean(), inplace=True)
 target = data.left
 
+string_to_int = {
+    'low' : 1,
+    'medium' : 2,
+    'high' : 3
+}
+
+data['salary'] = data['salary'].map(string_to_int)
+
 features = ["satisfaction_level", "number_project", "average_montly_hours", "Work_accident", "promotion_last_5years", "salary"]
 
 X = data[features]
