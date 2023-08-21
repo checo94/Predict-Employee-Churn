@@ -41,12 +41,12 @@ def user_input_features():
     Work_accident = st.sidebar.slider('Arbeitsunfall', 0, 1)
     promotion_last_5years = st.sidebar.slider('Förderung', 0, 1)
     salary = st.sidebar.slider('Gehalt', 1, 3)
-    data = {'Zufriedenheitsgrad': satisfaction_level,
-            'Anzahl der Projekte': number_project,
-            'Durchschnittliche Monatliche Arbeitszeit': average_montly_hours,
-            'Arbeitsunfall': Work_accident,
-            'Förderung': promotion_last_5years,
-            'Gehalt': salary}
+    data = {'satisfaction_level': satisfaction_level,
+            'number_project': number_project,
+            'average_montly_hours': average_montly_hours,
+            'Work_accident': Work_accident,
+            'promotion_last_5years': promotion_last_5years,
+            'salary': salary}
     features = pd.DataFrame(data, index=[0])
     return features
 
