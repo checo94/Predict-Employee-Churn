@@ -13,7 +13,8 @@ Diese App prognostiziert die **Mitarbeiterabwanderung**!
 st.write('---')
 
 # Loads The Dataset
-data = pd.read_csv('HCM_Employee_Churn.csv')
+# data = pd.read_csv('HCM_Employee_Churn.csv')
+data = pd.read_csv('modified_file.csv')
 data.fillna(data.mean(), inplace=True)
 target = data.left
 
