@@ -30,7 +30,8 @@ features = ["satisfaction_level", "number_project", "average_montly_hours", "Wor
 X = data[features]
 Y = target
 
-average_montly_hours = data['average_montly_hours']
+average_montly_hours_min = min(data['average_montly_hours'])
+average_montly_hours_max = max(data['average_montly_hours'])
 
 # Sidebar
 # Header of Specify Input Parameters
@@ -39,7 +40,7 @@ st.sidebar.header('Eingabeparameter spezifizieren')
 def user_input_features():
     satisfaction_level = st.sidebar.slider('Zufriedenheitsgrad', 0, 100)
     number_project = st.sidebar.slider('Anzahl der Projekte', 0, 7)
-    average_montly_hours = st.sidebar.slider('Durchschnittliche Monatliche Arbeitszeit', average_montly_hours.min(), average_montly_hours.max())
+    average_montly_hours = st.sidebar.slider('Durchschnittliche Monatliche Arbeitszeit', average_montly_hours_min, average_montly_hours_max)
     Work_accident = st.sidebar.slider('Arbeitsunfall', 0, 1)
     promotion_last_5years = st.sidebar.slider('Förderung', 0, 1)
     salary = st.sidebar.slider('Gehalt', 1, 3)
