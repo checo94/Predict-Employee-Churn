@@ -78,6 +78,7 @@ prediction = model.predict(df)
 st.header('Mitarbeiterabwanderung Ergebniss')
 st.write(prediction)
 st.write('---')
+st.header('Ergebniss als Text')
 if prediction == 1:
     st.write('Der/Die Mitarbeirter/in ist nicht zufrieden und er/sie wird wahrscheinlich gehen')
 else:
