@@ -30,6 +30,8 @@ features = ["satisfaction_level", "number_project", "average_montly_hours", "Wor
 X = data[features]
 Y = target
 
+average_montly_hours = data['average_montly_hours']
+
 # Sidebar
 # Header of Specify Input Parameters
 st.sidebar.header('Eingabeparameter spezifizieren')
