@@ -70,7 +70,17 @@ df = user_input_features()
 
 # Main Panel Layout
 st.header('Spezifizierte Eingabeparameter')
-st.write(df)
+# Display input parameters in two columns for better layout
+col1, col2, col3 = st.columns(3)
+col1.metric("Zufriedenheitsgrad", df['satisfaction_level'][0])
+col2.metric("Anzahl der Projekte", df['number_project'][0])
+col3.metric("Durchschnittliche Monatliche Arbeitszeit", df['average_montly_hours'][0])
+
+col4, col5, col6 = st.columns(3)
+col4.metric("Arbeitsunfall", "Ja" if df['Work_accident'][0] == 1 else "Nein")
+col5.metric("Förderung in den letzten 5 Jahren", "Ja" if df['promotion_last_5years'][0] == 1 else "Nein")
+col6.metric("Gehalt", ["Niedrig", "Mittel", "Hoch"][df['salary'][0] - 1])
+
 st.write('---')
 
 # Build Classifier Model
