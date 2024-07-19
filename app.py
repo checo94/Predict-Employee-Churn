@@ -6,16 +6,19 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
+# Set page configuration
 st.set_page_config(
     page_title="Mitarbeiterabwanderung Vorhersagen",
     page_icon=":chart_with_upwards_trend:",
     layout="wide"
 )
 
-st.write("""
-# Mitarbeiterabwanderung Vorhersagen App
-
-Diese App prognostiziert die **Mitarbeiterabwanderung**!
+# Title and description
+st.title("Mitarbeiterabwanderung Vorhersagen App")
+st.markdown("""
+Willkommen zur Mitarbeiterabwanderung Vorhersagen App! 
+Mit dieser App können Sie die Wahrscheinlichkeit der Abwanderung eines Mitarbeiters vorhersagen.
+Bitte spezifizieren Sie die Eingabeparameter im Seitenbereich.
 """)
 st.write('---')
 
@@ -40,8 +43,9 @@ Y = target
 average_montly_hours_min = min(data['average_montly_hours'])
 average_montly_hours_max = max(data['average_montly_hours'])
 
-# Sidebar
+# Sidebar input
 st.sidebar.header('Eingabeparameter spezifizieren')
+st.sidebar.markdown("### Eingabeparameter")
 
 def user_input_features():
     satisfaction_level = st.sidebar.slider('Zufriedenheitsgrad', 0, 100, help="Der Zufriedenheitsgrad des Mitarbeiters in Prozent.")
@@ -64,9 +68,7 @@ def user_input_features():
 
 df = user_input_features()
 
-# Main Panel
-
-# Print specified input parameters
+# Main Panel Layout
 st.header('Spezifizierte Eingabeparameter')
 st.write(df)
 st.write('---')
@@ -78,21 +80,22 @@ model.fit(X_train, y_train)
 model_val = model.predict(X_test)
 model_accuracy = accuracy_score(y_test, model_val)
 
+# Display model accuracy
 st.header('Modellevaluierung')
-st.write(f"Genauigkeit des Modells: **{model_accuracy * 100:.2f}%**")
+st.metric(label="Genauigkeit des Modells", value=f"{model_accuracy * 100:.2f}%")
 st.write('---')
 
 # Apply Model to Make Prediction
 prediction = model.predict(df)
 
+# Display prediction results with color coding
 st.header('Vorhersage der Mitarbeiterabwanderung')
-if prediction == 1:
-    st.markdown("<span style='color:red;'>Der/Die Mitarbeiter/in ist nicht zufrieden und er/sie wird wahrscheinlich gehen.</span>", unsafe_allow_html=True)
-else:
-    st.markdown("<span style='color:green;'>Der/Die Mitarbeiter/in ist zufrieden und er/sie bleibt bei uns.</span>", unsafe_allow_html=True)
+prediction_text = 'Der/Die Mitarbeiter/in ist zufrieden und er/sie bleibt bei uns.' if prediction == 0 else 'Der/Die Mitarbeirter/in ist nicht zufrieden und er/sie wird wahrscheinlich gehen.'
+prediction_color = 'green' if prediction == 0 else 'red'
+
+st.markdown(f"<h3 style='color:{prediction_color};'>{prediction_text}</h3>", unsafe_allow_html=True)
 st.write('---')
 
-# Explaining the model's predictions using SHAP values
 # Uncomment the following code if SHAP is installed and configured correctly
 # import shap
 # explainer = shap.TreeExplainer(model)
