@@ -116,7 +116,6 @@ if uploaded_file:
         input_df = pd.read_excel(uploaded_file)
     
     # Process the input file
-    print(input_df)
     input_df['salary'] = input_df['salary'].map(string_to_int)
     predictions = model.predict(input_df[features])
     
