@@ -135,7 +135,13 @@ if uploaded_file:
         result_file = 'predicted_results.csv'
         input_df.to_csv(result_file, index=False)
         
-        st.sidebar.markdown(f"Download die Ergebnisse: [Ergebnisse herunterladen](./{result_file})")
+        # Create a download button
+        st.sidebar.download_button(
+            label="Ergebnisse herunterladen",
+            data=input_df.to_csv(index=False).encode('utf-8'),
+            file_name=result_file,
+            mime='text/csv'
+        )
         
         st.header('Hochgeladene Datei und Vorhersagen')
         st.write(input_df)
