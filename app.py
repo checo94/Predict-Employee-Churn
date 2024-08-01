@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn import datasets
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -18,7 +17,7 @@ st.title("Mitarbeiterabwanderung Vorhersagen App")
 st.markdown("""
 Willkommen zur Mitarbeiterabwanderung Vorhersagen App! 
 Mit dieser App können Sie die Wahrscheinlichkeit der Abwanderung eines Mitarbeiters vorhersagen.
-Bitte spezifizieren Sie die Eingabeparameter im Seitenbereich.
+Bitte spezifizieren Sie die Eingabeparameter im Seitenbereich oder laden Sie eine Datei hoch.
 """)
 st.write('---')
 
@@ -105,6 +104,33 @@ prediction_color = 'green' if prediction == 0 else 'red'
 
 st.markdown(f"<h3 style='color:{prediction_color};'>{prediction_text}</h3>", unsafe_allow_html=True)
 st.write('---')
+
+# File upload and prediction
+st.sidebar.header('Datei-Upload')
+uploaded_file = st.sidebar.file_uploader("Laden Sie eine Excel- oder CSV-Datei hoch", type=["csv", "xlsx"])
+
+if uploaded_file:
+    if uploaded_file.name.endswith('.csv'):
+        input_df = pd.read_csv(uploaded_file)
+    else:
+        input_df = pd.read_excel(uploaded_file)
+    
+    # Process the input file
+    input_df['salary'] = input_df['salary'].map(string_to_int)
+    predictions = model.predict(input_df[features])
+    
+    result_mapping = {0: 'Er/Sie bleibt uns', 1: 'Er/Sie wird uns verlassen'}
+    input_df['Ergebnis'] = [result_mapping[pred] for pred in predictions]
+    
+    # Save the result to a CSV file
+    result_file = 'predicted_results.csv'
+    input_df.to_csv(result_file, index=False)
+    
+    st.sidebar.markdown(f"Download die Ergebnisse: [Ergebnisse herunterladen](./{result_file})")
+    
+    st.header('Hochgeladene Datei und Vorhersagen')
+    st.write(input_df)
+    st.write('---')
 
 # Uncomment the following code if SHAP is installed and configured correctly
 # import shap
