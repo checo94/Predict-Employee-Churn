@@ -27,40 +27,40 @@ data.fillna(data.mean(), inplace=True)
 target = data.left
 
 string_to_int = {
-    'low' : 1,
-    'medium' : 2,
-    'high' : 3
+    'low': 1,
+    'medium': 2,
+    'high': 3
 }
 
-data['salary'] = data['salary'].map(string_to_int)
+data['gehalt'] = data['gehalt'].map(string_to_int)
 
-features = ["satisfaction_level", "number_project", "average_montly_hours", "Work_accident", "promotion_last_5years", "salary"]
+features = ["zufriedenheitsgrad", "anzahl_projekte", "durchschnittliche_monatliche_arbeitszeit", "arbeitsunfall", "foerderung_letzte_5_jahre", "gehalt"]
 
 X = data[features]
 Y = target
 
-average_montly_hours_min = min(data['average_montly_hours'])
-average_montly_hours_max = max(data['average_montly_hours'])
+average_montly_hours_min = min(data['durchschnittliche_monatliche_arbeitszeit'])
+average_montly_hours_max = max(data['durchschnittliche_monatliche_arbeitszeit'])
 
 # Sidebar input
 st.sidebar.header('Eingabeparameter spezifizieren')
 st.sidebar.markdown("### Eingabeparameter")
 
 def user_input_features():
-    satisfaction_level = st.sidebar.slider('Zufriedenheitsgrad', 0, 100, help="Der Zufriedenheitsgrad des Mitarbeiters in Prozent.")
-    number_project = st.sidebar.slider('Anzahl der Projekte', 0, 7, help="Die Anzahl der Projekte, an denen der Mitarbeiter gearbeitet hat.")
-    average_montly_hours = st.sidebar.slider('Durchschnittliche Monatliche Arbeitszeit', average_montly_hours_min, average_montly_hours_max, help="Die durchschnittliche Anzahl der monatlichen Arbeitsstunden.")
-    Work_accident = st.sidebar.selectbox('Arbeitsunfall', [0, 1], format_func=lambda x: 'Ja' if x == 1 else 'Nein', help="Ob der Mitarbeiter einen Arbeitsunfall hatte (Ja/Nein).")
-    promotion_last_5years = st.sidebar.selectbox('Förderung in den letzten 5 Jahren', [0, 1], format_func=lambda x: 'Ja' if x == 1 else 'Nein', help="Ob der Mitarbeiter in den letzten 5 Jahren befördert wurde (Ja/Nein).")
-    salary = st.sidebar.selectbox('Gehalt', [1, 2, 3], format_func=lambda x: ['Niedrig', 'Mittel', 'Hoch'][x-1], help="Die Gehaltsstufe des Mitarbeiters (Niedrig, Mittel, Hoch).")
+    zufriedenheitsgrad = st.sidebar.slider('Zufriedenheitsgrad', 0, 100, help="Der Zufriedenheitsgrad des Mitarbeiters in Prozent.")
+    anzahl_projekte = st.sidebar.slider('Anzahl der Projekte', 0, 7, help="Die Anzahl der Projekte, an denen der Mitarbeiter gearbeitet hat.")
+    durchschnittliche_monatliche_arbeitszeit = st.sidebar.slider('Durchschnittliche Monatliche Arbeitszeit', average_montly_hours_min, average_montly_hours_max, help="Die durchschnittliche Anzahl der monatlichen Arbeitsstunden.")
+    arbeitsunfall = st.sidebar.selectbox('Arbeitsunfall', [0, 1], format_func=lambda x: 'Ja' if x == 1 else 'Nein', help="Ob der Mitarbeiter einen Arbeitsunfall hatte (Ja/Nein).")
+    foerderung_letzte_5_jahre = st.sidebar.selectbox('Förderung in den letzten 5 Jahren', [0, 1], format_func=lambda x: 'Ja' if x == 1 else 'Nein', help="Ob der Mitarbeiter in den letzten 5 Jahren befördert wurde (Ja/Nein).")
+    gehalt = st.sidebar.selectbox('Gehalt', [1, 2, 3], format_func=lambda x: ['Niedrig', 'Mittel', 'Hoch'][x-1], help="Die Gehaltsstufe des Mitarbeiters (Niedrig, Mittel, Hoch).")
     
     data = {
-        'satisfaction_level': satisfaction_level,
-        'number_project': number_project,
-        'average_montly_hours': average_montly_hours,
-        'Work_accident': Work_accident,
-        'promotion_last_5years': promotion_last_5years,
-        'salary': salary
+        'zufriedenheitsgrad': zufriedenheitsgrad,
+        'anzahl_projekte': anzahl_projekte,
+        'durchschnittliche_monatliche_arbeitszeit': durchschnittliche_monatliche_arbeitszeit,
+        'arbeitsunfall': arbeitsunfall,
+        'foerderung_letzte_5_jahre': foerderung_letzte_5_jahre,
+        'gehalt': gehalt
     }
     features = pd.DataFrame(data, index=[0])
     return features
@@ -71,14 +71,14 @@ df = user_input_features()
 st.header('Spezifizierte Eingabeparameter')
 # Display input parameters in two columns for better layout
 col1, col2, col3 = st.columns(3)
-col1.metric("Zufriedenheitsgrad", df['satisfaction_level'][0])
-col2.metric("Anzahl der Projekte", df['number_project'][0])
-col3.metric("Durchschnittliche Monatliche Arbeitszeit", df['average_montly_hours'][0])
+col1.metric("Zufriedenheitsgrad", df['zufriedenheitsgrad'][0])
+col2.metric("Anzahl der Projekte", df['anzahl_projekte'][0])
+col3.metric("Durchschnittliche Monatliche Arbeitszeit", df['durchschnittliche_monatliche_arbeitszeit'][0])
 
 col4, col5, col6 = st.columns(3)
-col4.metric("Arbeitsunfall", "Ja" if df['Work_accident'][0] == 1 else "Nein")
-col5.metric("Förderung in den letzten 5 Jahren", "Ja" if df['promotion_last_5years'][0] == 1 else "Nein")
-col6.metric("Gehalt", ["Niedrig", "Mittel", "Hoch"][df['salary'][0] - 1])
+col4.metric("Arbeitsunfall", "Ja" if df['arbeitsunfall'][0] == 1 else "Nein")
+col5.metric("Förderung in den letzten 5 Jahren", "Ja" if df['foerderung_letzte_5_jahre'][0] == 1 else "Nein")
+col6.metric("Gehalt", ["Niedrig", "Mittel", "Hoch"][df['gehalt'][0] - 1])
 
 st.write('---')
 
@@ -110,27 +110,39 @@ st.sidebar.header('Datei-Upload')
 uploaded_file = st.sidebar.file_uploader("Laden Sie eine Excel- oder CSV-Datei hoch", type=["csv", "xlsx"])
 
 if uploaded_file:
-    if uploaded_file.name.endswith('.csv'):
-        input_df = pd.read_csv(uploaded_file)
-    else:
-        input_df = pd.read_excel(uploaded_file)
-    
-    # Process the input file
-    input_df['salary'] = input_df['salary'].map(string_to_int)
-    predictions = model.predict(input_df[features])
-    
-    result_mapping = {0: 'Er/Sie bleibt uns', 1: 'Er/Sie wird uns verlassen'}
-    input_df['Ergebnis'] = [result_mapping[pred] for pred in predictions]
-    
-    # Save the result to a CSV file
-    result_file = 'predicted_results.csv'
-    input_df.to_csv(result_file, index=False)
-    
-    st.sidebar.markdown(f"Download die Ergebnisse: [Ergebnisse herunterladen](./{result_file})")
-    
-    st.header('Hochgeladene Datei und Vorhersagen')
-    st.write(input_df)
-    st.write('---')
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            input_df = pd.read_csv(uploaded_file)
+        else:
+            input_df = pd.read_excel(uploaded_file)
+
+        # Check for the required columns
+        required_columns = ["zufriedenheitsgrad", "anzahl_projekte", "durchschnittliche_monatliche_arbeitszeit", "arbeitsunfall", "foerderung_letzte_5_jahre", "gehalt"]
+        for col in required_columns:
+            if col not in input_df.columns:
+                st.sidebar.error(f"Die Datei muss die Spalte '{col}' enthalten.")
+                st.stop()
+
+        # Map salary column
+        input_df['gehalt'] = input_df['gehalt'].map(string_to_int)
+        
+        predictions = model.predict(input_df[features])
+        
+        result_mapping = {0: 'Er/Sie bleibt uns', 1: 'Er/Sie wird uns verlassen'}
+        input_df['Ergebnis'] = [result_mapping[pred] for pred in predictions]
+        
+        # Save the result to a CSV file
+        result_file = 'predicted_results.csv'
+        input_df.to_csv(result_file, index=False)
+        
+        st.sidebar.markdown(f"Download die Ergebnisse: [Ergebnisse herunterladen](./{result_file})")
+        
+        st.header('Hochgeladene Datei und Vorhersagen')
+        st.write(input_df)
+        st.write('---')
+
+    except Exception as e:
+        st.sidebar.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
 # Uncomment the following code if SHAP is installed and configured correctly
 # import shap
