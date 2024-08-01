@@ -117,7 +117,7 @@ if uploaded_file:
     
     # Process the input file
     print(input_df)
-    input_df['Gehalt'] = input_df['Gehalt'].map(string_to_int)
+    input_df['salary'] = input_df['salary'].map(string_to_int)
     predictions = model.predict(input_df[features])
     
     result_mapping = {0: 'Er/Sie bleibt uns', 1: 'Er/Sie wird uns verlassen'}
