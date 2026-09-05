@@ -9,6 +9,8 @@ font = "sans-serif"
 [server]
 headless = true
 maxUploadSize = 15
+fileWatcherType = "none"
+runOnSave = false
 
 [client]
 toolbarMode = "viewer"

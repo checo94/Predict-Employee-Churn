@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import joblib
 import numpy as np
 import pandas as pd
+from sklearn import __version__ as sklearn_version
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
@@ -30,7 +33,8 @@ from sklearn.preprocessing import OneHotEncoder
 
 RANDOM_STATE = 42
 CV_SPLITS = 5
-MODEL_VERSION = "2.0"
+MODEL_VERSION = "2.1"
+ARTIFACT_SCHEMA_VERSION = 1
 TARGET = "left"
 
 FEATURES = (
@@ -136,6 +140,89 @@ class ModelBundle:
     unique_profiles: int
     churn_rate: float
     model_version: str = MODEL_VERSION
+
+
+def _dependency_versions() -> dict[str, str]:
+    """Return versions that must match the trusted serialized model artifact."""
+    return {
+        "joblib": joblib.__version__,
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "scikit-learn": sklearn_version,
+    }
+
+
+def file_sha256(path: str | Path) -> str:
+    """Calculate a streaming SHA-256 digest without loading the file into memory."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def save_model_artifact(
+    bundle: ModelBundle,
+    artifact_path: str | Path,
+    training_data_path: str | Path,
+) -> None:
+    """Atomically save a trusted, versioned model artifact for production use."""
+    target = Path(artifact_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary_target = target.with_suffix(f"{target.suffix}.tmp")
+    artifact = {
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "model_version": MODEL_VERSION,
+        "dataset_sha256": file_sha256(training_data_path),
+        "dependencies": _dependency_versions(),
+        "bundle": bundle,
+    }
+    joblib.dump(artifact, temporary_target, compress=3)
+    temporary_target.replace(target)
+
+
+def load_model_artifact(
+    artifact_path: str | Path,
+    training_data_path: str | Path,
+) -> ModelBundle:
+    """Load only the trusted repository artifact after integrity checks."""
+    source = Path(artifact_path)
+    if not source.is_file():
+        raise DataValidationError(
+            "Das vortrainierte Modell fehlt. Bitte das Repository vollständig aktualisieren."
+        )
+
+    try:
+        artifact = joblib.load(source)
+    except Exception as exc:
+        raise DataValidationError(
+            "Das vortrainierte Modell konnte nicht sicher geladen werden."
+        ) from exc
+
+    if not isinstance(artifact, dict):
+        raise DataValidationError("Das Modellartefakt hat ein ungültiges Format.")
+    if artifact.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
+        raise DataValidationError("Die Version des Modellartefakts wird nicht unterstützt.")
+    if artifact.get("model_version") != MODEL_VERSION:
+        raise DataValidationError("Modellcode und Modellartefakt haben unterschiedliche Versionen.")
+    if artifact.get("dataset_sha256") != file_sha256(training_data_path):
+        raise DataValidationError(
+            "Trainingsdaten und Modellartefakt passen nicht zusammen. "
+            "Bitte das Modellartefakt neu erstellen."
+        )
+
+    expected_dependencies = _dependency_versions()
+    artifact_dependencies = artifact.get("dependencies")
+    if artifact_dependencies != expected_dependencies:
+        raise DataValidationError(
+            "Die installierten Modellbibliotheken passen nicht zum Modellartefakt. "
+            "Bitte requirements.txt unverändert installieren."
+        )
+
+    bundle = artifact.get("bundle")
+    if not isinstance(bundle, ModelBundle) or bundle.model_version != MODEL_VERSION:
+        raise DataValidationError("Das Modellartefakt enthält kein gültiges Modell.")
+    return bundle
 
 
 def canonicalize_columns(frame: pd.DataFrame) -> pd.DataFrame:

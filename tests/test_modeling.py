@@ -6,7 +6,9 @@ import pytest
 
 from modeling import (
     FEATURES,
+    DataValidationError,
     find_similar_profiles,
+    load_model_artifact,
     load_training_data,
     local_sensitivity,
     predict_scores,
@@ -17,6 +19,7 @@ from modeling import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "HCM_Employee_Churn.csv"
+ARTIFACT_PATH = ROOT / "artifacts" / "churn_model.joblib"
 
 
 @pytest.fixture(scope="session")
@@ -27,6 +30,11 @@ def training_data() -> pd.DataFrame:
 @pytest.fixture(scope="session")
 def model_bundle(training_data: pd.DataFrame):
     return train_model(training_data)
+
+
+@pytest.fixture(scope="session")
+def packaged_model_bundle():
+    return load_model_artifact(ARTIFACT_PATH, DATA_PATH)
 
 
 def test_source_dataset_is_intact(training_data: pd.DataFrame) -> None:
@@ -106,6 +114,44 @@ def test_model_has_honest_high_quality_out_of_fold_performance(model_bundle) -> 
     assert metrics["recall"] > 0.82
     assert model_bundle.sensitive_metrics["recall"] >= metrics["recall"]
     assert int(model_bundle.confusion.sum()) == model_bundle.trained_rows
+
+
+def test_packaged_model_is_current_and_reproduces_predictions(
+    training_data: pd.DataFrame,
+    model_bundle,
+    packaged_model_bundle,
+) -> None:
+    sample = training_data.loc[[0, 250, 7_500, 14_998], FEATURES]
+
+    assert packaged_model_bundle.model_version == model_bundle.model_version
+    assert packaged_model_bundle.trained_rows == len(training_data)
+    assert packaged_model_bundle.balanced_threshold == pytest.approx(
+        model_bundle.balanced_threshold
+    )
+    assert packaged_model_bundle.sensitive_threshold == pytest.approx(
+        model_bundle.sensitive_threshold
+    )
+    assert packaged_model_bundle.balanced_metrics == pytest.approx(model_bundle.balanced_metrics)
+    assert packaged_model_bundle.sensitive_metrics == pytest.approx(model_bundle.sensitive_metrics)
+    np.testing.assert_array_equal(packaged_model_bundle.confusion, model_bundle.confusion)
+    pd.testing.assert_frame_equal(
+        packaged_model_bundle.feature_importance,
+        model_bundle.feature_importance,
+    )
+    np.testing.assert_allclose(
+        predict_scores(packaged_model_bundle, sample),
+        predict_scores(model_bundle, sample),
+        rtol=0,
+        atol=1e-12,
+    )
+
+
+def test_packaged_model_rejects_changed_training_data(tmp_path: Path) -> None:
+    changed_data = tmp_path / DATA_PATH.name
+    changed_data.write_bytes(DATA_PATH.read_bytes() + b"\n")
+
+    with pytest.raises(DataValidationError, match="passen nicht zusammen"):
+        load_model_artifact(ARTIFACT_PATH, changed_data)
 
 
 def test_prediction_and_explanation_helpers(

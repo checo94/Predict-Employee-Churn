@@ -19,16 +19,17 @@ from modeling import (
     DataValidationError,
     ModelBundle,
     find_similar_profiles,
+    load_model_artifact,
     load_training_data,
     local_sensitivity,
     predict_scores,
-    train_model,
     validate_feature_frame,
     what_if_analysis,
 )
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_PATH = APP_ROOT / "HCM_Employee_Churn.csv"
+MODEL_PATH = APP_ROOT / "artifacts" / "churn_model.joblib"
 
 st.set_page_config(
     page_title="Fluktuationsradar | People Analytics",
@@ -140,10 +141,15 @@ def get_training_data(path: str, modified_time: int) -> pd.DataFrame:
 
 
 @st.cache_resource(show_spinner=False)
-def get_model_bundle(path: str, modified_time: int) -> ModelBundle:
-    """Train the model once per data version instead of on every widget change."""
-    training_data = get_training_data(path, modified_time)
-    return train_model(training_data)
+def get_model_bundle(
+    data_path: str,
+    data_modified_time: int,
+    model_path: str,
+    model_modified_time: int,
+) -> ModelBundle:
+    """Load the validated production model once per artifact version."""
+    del data_modified_time, model_modified_time
+    return load_model_artifact(model_path, data_path)
 
 
 def percent(value: float) -> str:
@@ -326,9 +332,15 @@ apply_theme()
 
 try:
     data_modified_time = DATA_PATH.stat().st_mtime_ns
-    with st.spinner("Modell und Qualitätsprüfung werden vorbereitet …"):
+    model_modified_time = MODEL_PATH.stat().st_mtime_ns
+    with st.spinner("Validiertes Modell wird geladen …"):
         data = get_training_data(str(DATA_PATH), data_modified_time)
-        model = get_model_bundle(str(DATA_PATH), data_modified_time)
+        model = get_model_bundle(
+            str(DATA_PATH),
+            data_modified_time,
+            str(MODEL_PATH),
+            model_modified_time,
+        )
 except (OSError, DataValidationError, ValueError) as error:
     st.error(f"Die Anwendung konnte nicht gestartet werden: {error}")
     st.stop()

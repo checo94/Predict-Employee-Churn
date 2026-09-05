@@ -1,4 +1,4 @@
-# Modellkarte: Fluktuationsradar 2.0
+# Modellkarte: Fluktuationsradar 2.1
 
 ## Modellzweck
 
@@ -35,6 +35,19 @@ organisatorisch und rechtlich verifiziert werden.
 - Gruppenschlüssel aus dem vollständigen Merkmalsprofil gegen Duplikat-Leckage
 - globale Permutation Importance auf einer getrennten Prüffalte
 - lokale Ein-Merkmal-Sensitivität ohne kausale oder additive Behauptung
+
+## Training und Bereitstellung
+
+Die vollständige Kreuzvalidierung, Schwellenoptimierung, Permutation Importance und das finale
+Training werden außerhalb des Webprozesses ausgeführt. Das resultierende, versionierte
+Produktionsartefakt wird zusammen mit dem Quellcode bereitgestellt. Beim Laden prüft die
+Anwendung den SHA-256-Fingerabdruck der Trainingsdatei sowie die verwendeten Versionen von
+Scikit-learn, NumPy, pandas und Joblib. Es werden ausschließlich Artefakte aus dem kontrollierten
+Repository geladen; hochgeladene Modelldateien werden nicht deserialisiert.
+
+Dadurch führt weder eine neue Streamlit-Sitzung noch eine zusätzliche Cloud-Foundry-Instanz ein
+erneutes Training aus. Eine fachlich beabsichtigte Daten- oder Modelländerung erfordert dagegen
+explizit eine neue Artefakterstellung und die vollständige automatisierte Prüfung.
 
 ## Evaluation
 

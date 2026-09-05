@@ -12,6 +12,10 @@ def test_cloud_foundry_manifest_keeps_streamlit_portable() -> None:
     assert "--server.address=0.0.0.0" in manifest
     assert "--server.port=$PORT" in manifest
     assert "health-check-type: port" in manifest
+    assert "instances: 1" in manifest
+    assert "memory: 768M" in manifest
+    assert "disk_quota: 2G" in manifest
+    assert 'OMP_NUM_THREADS: "1"' in manifest
 
 
 def test_cloud_foundry_runtime_matches_ci_and_documentation() -> None:

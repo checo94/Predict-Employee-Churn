@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 tests/
+scripts/
 *.py[cod]
 .DS_Store
 README.md

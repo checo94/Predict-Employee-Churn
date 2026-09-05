@@ -20,6 +20,7 @@ zeigt die geprüfte Modellgüte und macht Sensitivitäten sichtbar.
 - What-if-Analyse für jeweils ein verändertes Merkmal
 - Vergleich mit ähnlichen historischen Profilen
 - Modellunabhängige Permutation Importance auf einer isolierten Prüffalte
+- Versioniertes, vortrainiertes Produktionsmodell mit Daten- und Versionsprüfung
 - Vektorisierte Validierung von CSV- und Excel-Dateien
 - Download der Stapelergebnisse als Excel-kompatible UTF-8-CSV
 - Datenschutzfreundlicher Verlauf nur innerhalb der aktuellen Sitzung
@@ -42,6 +43,12 @@ Random-Forest-Ensembles. Die Datenvorbereitung ist Bestandteil derselben Scikit-
 Die Gruppierung ist wichtig: Der Quelldatensatz enthält wiederholte Merkmalsprofile. Eine
 gewöhnliche zufällige Aufteilung könnte dieselben Profile gleichzeitig in Training und Test
 platzieren und dadurch eine zu optimistische Genauigkeit melden.
+
+Die vollständige Kreuzvalidierung und Qualitätsprüfung läuft beim kontrollierten Erstellen des
+Modellartefakts, nicht beim Öffnen der Webanwendung. Im Betrieb wird das geprüfte Artefakt nur
+geladen. Dabei werden Modellversion, Bibliotheksversionen und der SHA-256-Fingerabdruck der
+Trainingsdatei kontrolliert. Das verhindert teures Mehrfachtraining auf BTP und schützt vor einer
+unbemerkten Kombination nicht zusammengehöriger Daten- und Modellstände.
 
 ### Verifizierte Out-of-Fold-Ergebnisse
 
@@ -132,6 +139,17 @@ bindet Streamlit an alle Netzwerkschnittstellen und verwendet den von Cloud Foun
 Port. `runtime.txt` hält BTP, CI und Streamlit Community Cloud auf Python 3.12. Die zufällige Route
 verhindert Namenskonflikte in gemeinsam genutzten BTP-Domains.
 
+Für die SAP-BTP-Testversion ist bewusst **eine Instanz mit 768 MB Arbeitsspeicher** konfiguriert.
+Das vortrainierte Modell vermeidet CPU-intensive Kreuzvalidierung im Webprozess. Das Disk-Limit
+von 2 GB gibt dem Python-Buildpack ausreichend Platz für die binären Analysebibliotheken. Falls
+eine ältere Bereitstellung noch mehrere Instanzen verwendet, zuerst auf eine Instanz reduzieren:
+
+```bash
+cf scale employee-churn-app -i 1
+git pull origin main
+cf push
+```
+
 Status, Route und letzte Protokolle lassen sich anschließend prüfen mit:
 
 ```bash
@@ -150,6 +168,14 @@ python -m compileall -q app.py modeling.py
 
 Bei jedem Push und Pull Request führt GitHub Actions diese Prüfungen mit Python 3.12 aus.
 
+Nach einer beabsichtigten Änderung an Trainingsdaten oder Modelllogik muss das versionierte
+Produktionsartefakt neu erstellt und gemeinsam mit den Änderungen geprüft werden:
+
+```bash
+python -m scripts.build_model_artifact
+python -m pytest -q
+```
+
 ## Projektstruktur
 
 ```text
@@ -157,6 +183,10 @@ Bei jedem Push und Pull Request führt GitHub Actions diese Prüfungen mit Pytho
 ├── .github/workflows/ci.yml    # Continuous Integration
 ├── .streamlit/config.toml      # Theme und sichere App-Defaults
 ├── .cfignore                   # Ausschlüsse für den BTP-Upload
+├── artifacts/
+│   └── churn_model.joblib      # geprüftes Produktionsmodell
+├── scripts/
+│   └── build_model_artifact.py # kontrollierte Modellerstellung
 ├── tests/                      # Daten-, Modell- und Validierungstests
 ├── HCM_Employee_Churn.csv      # intakter Quelldatensatz
 ├── MODEL_CARD.md               # Einsatzbereich, Messwerte und Grenzen

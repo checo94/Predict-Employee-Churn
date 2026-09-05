@@ -2,8 +2,8 @@
 applications:
   - name: employee-churn-app
     path: .
-    memory: 1G
-    disk_quota: 1G
+    memory: 768M
+    disk_quota: 2G
     instances: 1
     buildpacks:
       - python_buildpack
@@ -17,4 +17,9 @@ applications:
     timeout: 180
     random-route: true
     env:
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
