@@ -113,6 +113,32 @@ Alle benötigten Python-Pakete stehen fest versioniert in `requirements.txt`. Di
 benötigt keine externen Datenbank- oder Plattformdienste. Ports und Containerisierung werden
 von Streamlit Community Cloud verwaltet.
 
+## Parallel auf SAP BTP bereitstellen
+
+Das Repository enthält zusätzlich ein Cloud-Foundry-Manifest für SAP BTP. Beide Zielplattformen
+verwenden dieselbe Anwendung und denselben Modellcode; die BTP-Konfiguration beeinflusst die
+Bereitstellung auf Streamlit Community Cloud nicht.
+
+Voraussetzungen sind ein SAP-BTP-Cloud-Foundry-Space und eine dort angemeldete CF CLI. Danach im
+Stammverzeichnis des Repositorys ausführen:
+
+```bash
+cf target -o <ORG> -s <SPACE>
+cf push
+```
+
+`manifest.yml` stellt die Anwendung unter dem Namen `employee-churn-app` bereit. Der Startbefehl
+bindet Streamlit an alle Netzwerkschnittstellen und verwendet den von Cloud Foundry vergebenen
+Port. `runtime.txt` hält BTP, CI und Streamlit Community Cloud auf Python 3.12. Die zufällige Route
+verhindert Namenskonflikte in gemeinsam genutzten BTP-Domains.
+
+Status, Route und letzte Protokolle lassen sich anschließend prüfen mit:
+
+```bash
+cf app employee-churn-app
+cf logs employee-churn-app --recent
+```
+
 ## Entwicklung und Qualitätssicherung
 
 ```bash
@@ -130,12 +156,15 @@ Bei jedem Push und Pull Request führt GitHub Actions diese Prüfungen mit Pytho
 .
 ├── .github/workflows/ci.yml    # Continuous Integration
 ├── .streamlit/config.toml      # Theme und sichere App-Defaults
+├── .cfignore                   # Ausschlüsse für den BTP-Upload
 ├── tests/                      # Daten-, Modell- und Validierungstests
 ├── HCM_Employee_Churn.csv      # intakter Quelldatensatz
 ├── MODEL_CARD.md               # Einsatzbereich, Messwerte und Grenzen
 ├── app.py                      # Streamlit-Oberfläche
+├── manifest.yml                # SAP-BTP-Cloud-Foundry-Konfiguration
 ├── modeling.py                 # ML-, Evaluations- und Validierungslogik
 ├── pyproject.toml              # Ruff- und Pytest-Konfiguration
+├── runtime.txt                 # Python-Laufzeit für den BTP-Buildpack
 └── requirements.txt            # Community-Cloud-Abhängigkeiten
 ```
 

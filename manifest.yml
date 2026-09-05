@@ -1,0 +1,20 @@
+---
+applications:
+  - name: employee-churn-app
+    path: .
+    memory: 1G
+    disk_quota: 1G
+    instances: 1
+    buildpacks:
+      - python_buildpack
+    command: >-
+      exec streamlit run app.py
+      --server.address=0.0.0.0
+      --server.port=$PORT
+      --server.headless=true
+      --browser.gatherUsageStats=false
+    health-check-type: port
+    timeout: 180
+    random-route: true
+    env:
+      PYTHONUNBUFFERED: "1"

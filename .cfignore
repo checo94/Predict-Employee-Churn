@@ -1,0 +1,13 @@
+.git/
+.github/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+*.py[cod]
+.DS_Store
+README.md
+MODEL_CARD.md
+requirements-dev.txt
+pyproject.toml
