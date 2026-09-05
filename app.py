@@ -1,801 +1,806 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-import numpy as np
-import os
-from database import init_database, save_prediction, get_prediction_history, get_prediction_statistics
+"""Modern Streamlit interface for responsible employee churn exploration."""
 
-# Set page configuration
-st.set_page_config(
-    page_title="Mitarbeiterabwanderung Vorhersagen",
-    page_icon="📊",
-    layout="wide"
+from __future__ import annotations
+
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+from modeling import (
+    DISPLAY_NAMES,
+    FEATURES,
+    MODEL_VERSION,
+    SALARY_DISPLAY,
+    DataValidationError,
+    ModelBundle,
+    find_similar_profiles,
+    load_training_data,
+    local_sensitivity,
+    predict_scores,
+    train_model,
+    validate_feature_frame,
+    what_if_analysis,
 )
 
-# Initialize database
-init_database()
+APP_ROOT = Path(__file__).resolve().parent
+DATA_PATH = APP_ROOT / "HCM_Employee_Churn.csv"
 
-# Title and description
-st.title("Mitarbeiterabwanderung Vorhersagen App")
-st.markdown("""
-Willkommen zur Mitarbeiterabwanderung Vorhersagen App! 
-Mit dieser App können Sie die Wahrscheinlichkeit der Abwanderung eines Mitarbeiters vorhersagen.
-Bitte spezifizieren Sie die Eingabeparameter im Seitenbereich oder laden Sie eine Datei hoch.
-""")
-st.write('---')
+st.set_page_config(
+    page_title="Fluktuationsradar | People Analytics",
+    page_icon="🧭",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# Check if the data file exists
-data_file = 'modified_file.csv'
-if not os.path.exists(data_file):
-    st.error(f"Die Datei '{data_file}' wurde nicht gefunden. Bitte stellen Sie sicher, dass die Datei im Hauptverzeichnis vorhanden ist.")
-    st.stop()
 
-# Load the Dataset
-try:
-    data = pd.read_csv(data_file)
-    # Fill missing values with mean for numeric columns
-    numeric_columns = data.select_dtypes(include=['float64', 'int64']).columns
-    data[numeric_columns] = data[numeric_columns].fillna(data[numeric_columns].mean())
-    
-    target = data['left']
-    
-    # String to integer mapping for salary
-    string_to_int = {
-        'low': 1,
-        'medium': 2,
-        'high': 3
-    }
-    
-    # Handle salary mapping
-    if data['gehalt'].dtype == 'object':
-        data['gehalt'] = data['gehalt'].map(string_to_int)
-    
-    # Define features
-    features = ["zufriedenheitsgrad", "anzahl_projekte", "durchschnittliche_monatliche_arbeitszeit", "arbeitsunfall", "foerderung_letzte_5_jahre", "gehalt"]
-    
-    X = data[features]
-    Y = target
-    
-    # Get min and max values for sliders
-    average_monthly_hours_min = int(min(data['durchschnittliche_monatliche_arbeitszeit']))
-    average_monthly_hours_max = int(max(data['durchschnittliche_monatliche_arbeitszeit']))
-    
-except Exception as e:
-    st.error(f"Fehler beim Laden der Daten: {e}")
-    st.stop()
+def apply_theme() -> None:
+    """Add a restrained visual layer while keeping native Streamlit accessibility."""
+    st.markdown(
+        """
+        <style>
+            :root {
+                --ink: #132238;
+                --muted: #5d6b7c;
+                --teal: #087f78;
+                --teal-soft: #e7f6f3;
+                --amber: #b86b00;
+                --amber-soft: #fff4dc;
+                --surface: #ffffff;
+                --line: #dbe4ec;
+            }
+            .stApp { background: #f6f8fb; }
+            .block-container { max-width: 1440px; padding-top: 2rem; padding-bottom: 3rem; }
+            [data-testid="stSidebar"] { border-right: 1px solid var(--line); }
+            [data-testid="stMetric"] {
+                background: var(--surface);
+                border: 1px solid var(--line);
+                border-radius: 16px;
+                padding: 0.9rem 1rem;
+                box-shadow: 0 5px 18px rgba(19, 34, 56, 0.04);
+            }
+            .hero {
+                padding: 1.8rem 2rem;
+                border-radius: 22px;
+                color: white;
+                background:
+                    radial-gradient(circle at 90% 10%, rgba(255,255,255,.18), transparent 30%),
+                    linear-gradient(120deg, #12304a 0%, #087f78 100%);
+                box-shadow: 0 14px 34px rgba(18, 48, 74, .18);
+                margin-bottom: 1.25rem;
+            }
+            .hero-kicker {
+                text-transform: uppercase;
+                letter-spacing: .12em;
+                font-size: .75rem;
+                font-weight: 700;
+                opacity: .82;
+                margin-bottom: .4rem;
+            }
+            .hero h1 { color: white; font-size: 2.35rem; margin: 0 0 .45rem 0; }
+            .hero p { margin: 0; max-width: 780px; font-size: 1.02rem; opacity: .9; }
+            .result-card {
+                border-radius: 18px;
+                padding: 1.2rem 1.35rem;
+                margin: .3rem 0 1rem 0;
+                border: 1px solid var(--line);
+                background: var(--surface);
+            }
+            .result-card.low { border-left: 6px solid var(--teal); background: var(--teal-soft); }
+            .result-card.high { border-left: 6px solid var(--amber); background: var(--amber-soft); }
+            .result-label { color: var(--muted); font-size: .82rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+            .result-title { color: var(--ink); font-size: 1.35rem; font-weight: 750; margin-top: .2rem; }
+            .result-copy { color: var(--muted); margin-top: .35rem; }
+            .pill {
+                display: inline-block;
+                padding: .28rem .62rem;
+                border-radius: 999px;
+                background: rgba(255,255,255,.82);
+                border: 1px solid rgba(8,127,120,.22);
+                color: var(--teal);
+                font-size: .78rem;
+                font-weight: 700;
+                margin-right: .35rem;
+                margin-top: .65rem;
+            }
+            .method-note {
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                padding: 1rem 1.1rem;
+                background: white;
+                color: var(--muted);
+            }
+            .footer {
+                color: var(--muted);
+                text-align: center;
+                font-size: .82rem;
+                padding-top: 1rem;
+            }
+            div[data-testid="stForm"] {
+                border: 1px solid var(--line);
+                border-radius: 18px;
+                padding: 1rem;
+                background: rgba(255,255,255,.74);
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-# Sidebar input
-st.sidebar.header('Eingabeparameter spezifizieren')
-st.sidebar.markdown("### Eingabeparameter")
 
-def user_input_features():
-    zufriedenheitsgrad = st.sidebar.slider('Zufriedenheitsgrad', 0, 100, 50, help="Der Zufriedenheitsgrad des Mitarbeiters in Prozent.")
-    anzahl_projekte = st.sidebar.slider('Anzahl der Projekte', 0, 7, 3, help="Die Anzahl der Projekte, an denen der Mitarbeiter gearbeitet hat.")
-    durchschnittliche_monatliche_arbeitszeit = st.sidebar.slider('Durchschnittliche Monatliche Arbeitszeit', average_monthly_hours_min, average_monthly_hours_max, 200, help="Die durchschnittliche Anzahl der monatlichen Arbeitsstunden.")
-    arbeitsunfall = st.sidebar.selectbox('Arbeitsunfall', [0, 1], format_func=lambda x: 'Ja' if x == 1 else 'Nein', help="Ob der Mitarbeiter einen Arbeitsunfall hatte (Ja/Nein).")
-    foerderung_letzte_5_jahre = st.sidebar.selectbox('Förderung in den letzten 5 Jahren', [0, 1], format_func=lambda x: 'Ja' if x == 1 else 'Nein', help="Ob der Mitarbeiter in den letzten 5 Jahren befördert wurde (Ja/Nein).")
-    gehalt = st.sidebar.selectbox('Gehalt', [1, 2, 3], format_func=lambda x: ['Niedrig', 'Mittel', 'Hoch'][x-1], help="Die Gehaltsstufe des Mitarbeiters (Niedrig, Mittel, Hoch).")
-    
-    data_dict = {
-        'zufriedenheitsgrad': zufriedenheitsgrad,
-        'anzahl_projekte': anzahl_projekte,
-        'durchschnittliche_monatliche_arbeitszeit': durchschnittliche_monatliche_arbeitszeit,
-        'arbeitsunfall': arbeitsunfall,
-        'foerderung_letzte_5_jahre': foerderung_letzte_5_jahre,
-        'gehalt': gehalt
-    }
-    features_df = pd.DataFrame(data_dict, index=[0])
-    return features_df
+@st.cache_data(show_spinner=False)
+def get_training_data(path: str, modified_time: int) -> pd.DataFrame:
+    """Cache validated source data and invalidate when the file changes."""
+    del modified_time
+    return load_training_data(path)
 
-df = user_input_features()
 
-# Main Panel Layout
-st.header('Spezifizierte Eingabeparameter')
-# Display input parameters in three columns for better layout
-col1, col2, col3 = st.columns(3)
-col1.metric("Zufriedenheitsgrad", f"{df['zufriedenheitsgrad'][0]}%")
-col2.metric("Anzahl der Projekte", df['anzahl_projekte'][0])
-col3.metric("Durchschnittliche Monatliche Arbeitszeit", f"{df['durchschnittliche_monatliche_arbeitszeit'][0]}h")
+@st.cache_resource(show_spinner=False)
+def get_model_bundle(path: str, modified_time: int) -> ModelBundle:
+    """Train the model once per data version instead of on every widget change."""
+    training_data = get_training_data(path, modified_time)
+    return train_model(training_data)
 
-col4, col5, col6 = st.columns(3)
-col4.metric("Arbeitsunfall", "Ja" if df['arbeitsunfall'][0] == 1 else "Nein")
-col5.metric("Förderung in den letzten 5 Jahren", "Ja" if df['foerderung_letzte_5_jahre'][0] == 1 else "Nein")
-col6.metric("Gehalt", ["Niedrig", "Mittel", "Hoch"][df['gehalt'][0] - 1])
 
-st.write('---')
+def percent(value: float) -> str:
+    return f"{value * 100:.1f} %"
 
-# Build Classifier Model
-try:
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=1)
-    model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=1)
-    model.fit(X_train, y_train)
-    model_val = model.predict(X_test)
-    model_accuracy = accuracy_score(y_test, model_val)
-    
-    # Display model accuracy
-    st.header('Modellevaluierung')
-    st.metric(label="Genauigkeit des Modells", value=f"{model_accuracy * 100:.2f}%")
-    st.write('---')
-    
-    # Apply Model to Make Prediction
-    prediction = model.predict(df)
-    prediction_proba = model.predict_proba(df)
-    
-    # Save prediction to database
-    features_dict = {
-        'zufriedenheit': df['zufriedenheitsgrad'][0] / 100.0,
-        'anzahl_projekte': int(df['anzahl_projekte'][0]),
-        'durchschnittliche_monatliche_arbeitsstunden': int(df['durchschnittliche_monatliche_arbeitszeit'][0]),
-        'jahre_im_unternehmen': 3,  # Default value since not in current inputs
-        'arbeitsunfall': int(df['arbeitsunfall'][0]),
-        'foerderung_letzte_5_jahre': int(df['foerderung_letzte_5_jahre'][0]),
-        'abteilung': 'sales',  # Default value since not in current inputs
-        'gehalt': ['niedrig', 'mittel', 'hoch'][int(df['gehalt'][0]) - 1]
-    }
-    
-    # Save prediction to database silently (errors will be shown by the function)
-    save_prediction(features_dict, prediction[0], prediction_proba[0])
-    
-    # Display prediction results with color coding
-    st.header('Vorhersage der Mitarbeiterabwanderung')
-    prediction_text = 'Der/Die Mitarbeiter/in ist zufrieden und er/sie bleibt bei uns.' if prediction[0] == 0 else 'Der/Die Mitarbeiter/in ist nicht zufrieden und er/sie wird wahrscheinlich gehen.'
-    prediction_color = 'green' if prediction[0] == 0 else 'red'
-    
-    st.markdown(f"<h3 style='color:{prediction_color};'>{prediction_text}</h3>", unsafe_allow_html=True)
-    
-    # Show prediction probability
-    if prediction[0] == 0:
-        probability = prediction_proba[0][0] * 100
-        st.info(f"Wahrscheinlichkeit zu bleiben: {probability:.1f}%")
-    else:
-        probability = prediction_proba[0][1] * 100
-        st.warning(f"Wahrscheinlichkeit zu gehen: {probability:.1f}%")
-    
-    st.write('---')
-    
-    # Data Visualization Dashboard
-    st.header('📊 Datenvisualisierung und Modelleinblicke')
-    
-    viz_tab1, viz_tab2, viz_tab3 = st.tabs(["Feature-Wichtigkeit", "Vorhersageverteilung", "Datenverteilung"])
-    
-    with viz_tab1:
-        st.subheader("Feature-Wichtigkeit")
-        st.write("Welche Faktoren beeinflussen die Abwanderungsvorhersage am meisten?")
-        
-        # Dynamic feature name mapping
-        feature_names_display = {
-            'zufriedenheitsgrad': 'Zufriedenheitsgrad',
-            'anzahl_projekte': 'Anzahl Projekte',
-            'durchschnittliche_monatliche_arbeitszeit': 'Monatliche Arbeitszeit',
-            'arbeitsunfall': 'Arbeitsunfall',
-            'foerderung_letzte_5_jahre': 'Förderung',
-            'gehalt': 'Gehalt'
-        }
-        
-        # Get feature importances dynamically from actual features
-        feature_importance = pd.DataFrame({
-            'Feature': [feature_names_display[f] for f in features],
-            'Wichtigkeit': model.feature_importances_
-        }).sort_values('Wichtigkeit', ascending=True)
-        
-        # Create horizontal bar chart
-        fig1, ax1 = plt.subplots(figsize=(10, 6))
-        bars = ax1.barh(feature_importance['Feature'], feature_importance['Wichtigkeit'], 
-                       color=plt.cm.viridis(feature_importance['Wichtigkeit'] / feature_importance['Wichtigkeit'].max()))
-        ax1.set_xlabel('Wichtigkeit', fontsize=12)
-        ax1.set_title('Relative Wichtigkeit der Features für die Vorhersage', fontsize=14, fontweight='bold')
-        ax1.grid(axis='x', alpha=0.3)
-        
-        # Add value labels
-        for i, (idx, row) in enumerate(feature_importance.iterrows()):
-            ax1.text(row['Wichtigkeit'], i, f" {row['Wichtigkeit']:.3f}", 
-                    va='center', fontsize=10)
-        
-        plt.tight_layout()
-        st.pyplot(fig1)
-        plt.close()
-        
-        st.info("💡 **Interpretation:** Je höher die Wichtigkeit, desto größer der Einfluss des Features auf die Vorhersage.")
-    
-    with viz_tab2:
-        st.subheader("Vorhersageverteilung im Trainingsdatensatz")
-        
-        # Get predictions on training data
-        y_pred_all = model.predict(X)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Pie chart for predictions
-            fig2, ax2 = plt.subplots(figsize=(8, 8))
-            labels = ['Bleiben', 'Gehen']
-            sizes = [sum(Y == 0), sum(Y == 1)]
-            colors = ['#2ecc71', '#e74c3c']
-            explode = (0.05, 0.05)
-            
-            ax2.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-                   shadow=True, startangle=90, textprops={'fontsize': 12, 'fontweight': 'bold'})
-            ax2.set_title('Tatsächliche Verteilung', fontsize=14, fontweight='bold')
-            
-            st.pyplot(fig2)
-            plt.close()
-        
-        with col2:
-            # Pie chart for model predictions
-            fig3, ax3 = plt.subplots(figsize=(8, 8))
-            pred_sizes = [sum(y_pred_all == 0), sum(y_pred_all == 1)]
-            
-            ax3.pie(pred_sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-                   shadow=True, startangle=90, textprops={'fontsize': 12, 'fontweight': 'bold'})
-            ax3.set_title('Modell-Vorhersageverteilung', fontsize=14, fontweight='bold')
-            
-            st.pyplot(fig3)
-            plt.close()
-        
-        st.write(f"**Datensätze insgesamt:** {len(Y):,}")
-        st.write(f"**Tatsächlich bleiben:** {sum(Y == 0):,} ({sum(Y == 0)/len(Y)*100:.1f}%)")
-        st.write(f"**Tatsächlich gehen:** {sum(Y == 1):,} ({sum(Y == 1)/len(Y)*100:.1f}%)")
-    
-    with viz_tab3:
-        st.subheader("Verteilung der wichtigsten Features")
-        
-        # Create distribution plots for top features
-        fig4, axes = plt.subplots(2, 3, figsize=(15, 10), constrained_layout=True)
-        axes = axes.ravel()
-        
-        feature_names_display = {
-            'zufriedenheitsgrad': 'Zufriedenheitsgrad',
-            'anzahl_projekte': 'Anzahl Projekte',
-            'durchschnittliche_monatliche_arbeitszeit': 'Monatliche Arbeitszeit',
-            'arbeitsunfall': 'Arbeitsunfall',
-            'foerderung_letzte_5_jahre': 'Förderung',
-            'gehalt': 'Gehalt'
-        }
-        
-        # Identify categorical/binary features
-        categorical_features = ['arbeitsunfall', 'foerderung_letzte_5_jahre', 'gehalt']
-        
-        for idx, feature in enumerate(features):
-            ax = axes[idx]
-            
-            if feature in categorical_features:
-                # Use grouped bar chart for categorical features
-                feature_data = data.groupby([feature, 'left']).size().unstack(fill_value=0)
-                feature_data.plot(kind='bar', ax=ax, color=['#2ecc71', '#e74c3c'], 
-                                 alpha=0.8, edgecolor='black', width=0.7)
-                ax.set_xlabel(feature_names_display[feature], fontsize=10)
-                ax.set_ylabel('Anzahl', fontsize=10)
-                ax.set_title(f'Verteilung: {feature_names_display[feature]}', fontsize=11, fontweight='bold')
-                ax.legend(['Bleiben', 'Gehen'], loc='upper right')
-                ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
-            else:
-                # Use histograms for continuous features
-                stayed = data[data['left'] == 0][feature]
-                left = data[data['left'] == 1][feature]
-                
-                ax.hist([stayed, left], bins=30, label=['Bleiben', 'Gehen'], 
-                       color=['#2ecc71', '#e74c3c'], alpha=0.7, edgecolor='black')
-                ax.set_xlabel(feature_names_display[feature], fontsize=10)
-                ax.set_ylabel('Anzahl', fontsize=10)
-                ax.set_title(f'Verteilung: {feature_names_display[feature]}', fontsize=11, fontweight='bold')
-                ax.legend()
-            
-            ax.grid(alpha=0.3, axis='y')
-        
-        st.pyplot(fig4)
-        plt.close()
-        
-        st.info("💡 **Interpretation:** Diese Diagramme zeigen, wie sich die Werte der Features zwischen Mitarbeitern unterscheiden, die bleiben (grün) und denen, die gehen (rot).")
-    
-    st.write('---')
-    
-    # Explainable AI Section
-    st.header('🔍 Erklärbares KI - Vorhersage-Erklärung')
-    st.write("Verstehen Sie, wie das Modell seine Entscheidungen trifft.")
-    
-    explain_tab1, explain_tab2 = st.tabs(["Vorhersage-Details", "What-If Analyse"])
-    
-    with explain_tab1:
-        st.subheader("Verstehen Sie Ihre Vorhersage")
-        
-        # Get the prediction probabilities for the current input
-        current_pred_proba = model.predict_proba(df)[0]
-        
-        # Show probability breakdown prominently
-        st.write("### Vorhersage-Wahrscheinlichkeiten")
-        prob_col1, prob_col2 = st.columns(2)
-        with prob_col1:
-            st.metric("Wahrscheinlichkeit: Bleibt", f"{current_pred_proba[0]*100:.1f}%",
-                     help="Die Wahrscheinlichkeit, dass dieser Mitarbeiter im Unternehmen bleibt")
-        with prob_col2:
-            st.metric("Wahrscheinlichkeit: Geht", f"{current_pred_proba[1]*100:.1f}%",
-                     help="Die Wahrscheinlichkeit, dass dieser Mitarbeiter das Unternehmen verlässt")
-        
-        st.write("---")
-        st.write("### Ihre Eingabewerte im Vergleich")
-        st.write("Vergleichen Sie Ihre Eingaben mit den Durchschnittswerten der Mitarbeiter:")
-        
-        # Create comparison dataframe
-        comparison_data = []
-        for i, feature_name in enumerate(features):
-            feature_value = df[feature_name].iloc[0]
-            mean_value = X_train[feature_name].mean()
-            # Calculate percentage of employees who left with similar values
-            if feature_name in categorical_features:
-                similar_employees = data[data[feature_name] == feature_value]
-            else:
-                # For continuous features, find employees within +/- 10% of the value
-                tolerance = abs(mean_value * 0.1) if mean_value != 0 else 5
-                similar_employees = data[
-                    (data[feature_name] >= feature_value - tolerance) & 
-                    (data[feature_name] <= feature_value + tolerance)
-                ]
-            
-            if len(similar_employees) > 0:
-                churn_rate = (similar_employees['left'] == 1).mean() * 100
-            else:
-                churn_rate = None
-            
-            comparison_data.append({
-                'Feature': feature_names_display[feature_name],
-                'Ihr Wert': feature_value,
-                'Durchschnitt': mean_value,
-                'Abweichung': feature_value - mean_value,
-                'Abwanderungsrate (ähnliche Werte)': churn_rate
-            })
-        
-        comp_df = pd.DataFrame(comparison_data)
-        
-        # Visualize comparison
-        fig_comp, ax_comp = plt.subplots(figsize=(12, 7))
-        
-        y_pos = np.arange(len(comp_df))
-        bars = ax_comp.barh(y_pos, comp_df['Abweichung'], 
-                           color=['#e74c3c' if x > 0 else '#3498db' for x in comp_df['Abweichung']],
-                           alpha=0.8, edgecolor='black')
-        
-        ax_comp.set_yticks(y_pos)
-        ax_comp.set_yticklabels(comp_df['Feature'])
-        ax_comp.axvline(x=0, color='black', linestyle='-', linewidth=1.5)
-        ax_comp.set_xlabel('Abweichung vom Durchschnitt', fontsize=12)
-        ax_comp.set_title('Ihre Werte im Vergleich zum Durchschnitt', fontsize=14, fontweight='bold')
-        ax_comp.grid(axis='x', alpha=0.3)
-        
-        plt.tight_layout()
-        st.pyplot(fig_comp)
-        plt.close()
-        
-        st.info("📊 **Interpretation:** Blaue Balken zeigen Werte unter dem Durchschnitt, rote Balken über dem Durchschnitt.")
-        
-        # Show detailed breakdown
-        st.write("---")
-        st.write("### Detaillierte Analyse der Features")
-        
-        # Combine with feature importance for context
-        for idx, row in comp_df.iterrows():
-            importance = model.feature_importances_[idx]
-            churn_rate = row['Abwanderungsrate (ähnliche Werte)']
-            
-            with st.expander(f"📊 {row['Feature']}"):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Ihr Wert", f"{row['Ihr Wert']:.1f}" if isinstance(row['Ihr Wert'], (int, float)) and row['Ihr Wert'] > 10 else row['Ihr Wert'])
-                with col2:
-                    st.metric("Durchschnitt", f"{row['Durchschnitt']:.1f}")
-                with col3:
-                    st.metric("Modell-Wichtigkeit", f"{importance*100:.1f}%",
-                             help="Wie wichtig ist dieses Feature für das Modell insgesamt?")
-                
-                if churn_rate is not None:
-                    st.write(f"**Historische Daten:** {churn_rate:.1f}% der Mitarbeiter mit ähnlichen Werten für dieses Feature haben das Unternehmen verlassen.")
-                    
-                    # Color code the risk
-                    if churn_rate > 50:
-                        st.error(f"⚠️ Hohe Abwanderungsrate bei ähnlichen Werten!")
-                    elif churn_rate > 30:
-                        st.warning(f"⚡ Moderate Abwanderungsrate bei ähnlichen Werten.")
-                    else:
-                        st.success(f"✅ Niedrige Abwanderungsrate bei ähnlichen Werten.")
-                else:
-                    st.info("Nicht genügend Daten für historische Analyse.")
-                
-                # Explain the importance
-                if importance > 0.2:
-                    st.write(f"🎯 **Sehr wichtiges Feature:** Dieses Feature hat einen starken Einfluss auf die Vorhersage ({importance*100:.1f}%).")
-                elif importance > 0.1:
-                    st.write(f"📍 **Wichtiges Feature:** Dieses Feature hat einen moderaten Einfluss auf die Vorhersage ({importance*100:.1f}%).")
-                else:
-                    st.write(f"📌 **Weniger wichtiges Feature:** Dieses Feature hat einen geringeren Einfluss auf die Vorhersage ({importance*100:.1f}%).")
-    
-    with explain_tab2:
-        st.subheader("What-If Szenario-Analyse")
-        st.write("Wie würde sich die Vorhersage ändern, wenn Sie dieses eine Feature verändern würden?")
-        st.info("💡 **Hinweis:** Diese Analyse zeigt, wie sich die Vorhersage für IHRE spezifischen Eingaben ändert, wenn Sie nur ein Feature variieren und alle anderen konstant halten.")
-        
-        # Feature selection for detailed analysis
-        selected_feature = st.selectbox(
-            "Wählen Sie ein Feature zur Analyse:",
-            options=features,
-            format_func=lambda x: feature_names_display[x]
+
+def read_uploaded_table(uploaded_file: object) -> pd.DataFrame:
+    """Read CSVs with common German encodings/delimiters or an XLSX workbook."""
+    file_name = str(getattr(uploaded_file, "name", "")).lower()
+    payload = uploaded_file.getvalue()
+    if file_name.endswith(".xlsx"):
+        return pd.read_excel(BytesIO(payload))
+
+    decoding_errors: list[UnicodeDecodeError] = []
+    for encoding in ("utf-8-sig", "utf-8", "cp1252"):
+        try:
+            return pd.read_csv(
+                BytesIO(payload),
+                sep=None,
+                engine="python",
+                encoding=encoding,
+            )
+        except UnicodeDecodeError as error:
+            decoding_errors.append(error)
+    raise decoding_errors[-1]
+
+
+def safe_csv_bytes(frame: pd.DataFrame) -> bytes:
+    """Create an Excel-friendly CSV while neutralizing spreadsheet formulas."""
+    safe_frame = frame.copy()
+    text_columns = safe_frame.select_dtypes(include=("object", "string")).columns
+    dangerous_prefixes = ("=", "+", "-", "@", "\t", "\r")
+    for column in text_columns:
+        safe_frame[column] = safe_frame[column].map(
+            lambda value: (
+                "'" + value
+                if isinstance(value, str) and value.startswith(dangerous_prefixes)
+                else value
+            )
         )
-        
-        # Create a range of values for the selected feature
-        if selected_feature in categorical_features:
-            unique_values = sorted(data[selected_feature].unique())
-            predictions_for_values = []
-            
-            for val in unique_values:
-                temp_df = df.copy()
-                temp_df[selected_feature] = val
-                pred_prob = model.predict_proba(temp_df)[0][1]
-                predictions_for_values.append(pred_prob)
-            
-            fig_influence, ax_influence = plt.subplots(figsize=(10, 6))
-            bars = ax_influence.bar(range(len(unique_values)), predictions_for_values, 
-                                   color=plt.cm.RdYlGn_r(predictions_for_values), 
-                                   alpha=0.8, edgecolor='black')
-            ax_influence.set_xlabel(feature_names_display[selected_feature], fontsize=12)
-            ax_influence.set_ylabel('Wahrscheinlichkeit zu gehen', fontsize=12)
-            ax_influence.set_title(f'Einfluss von {feature_names_display[selected_feature]} auf die Vorhersage', 
-                                 fontsize=14, fontweight='bold')
-            ax_influence.set_xticks(range(len(unique_values)))
-            ax_influence.set_xticklabels(unique_values)
-            ax_influence.grid(axis='y', alpha=0.3)
-            ax_influence.axhline(y=0.5, color='r', linestyle='--', label='Entscheidungsgrenze')
-            ax_influence.legend()
-            
-            plt.tight_layout()
-            st.pyplot(fig_influence)
-            plt.close()
+    return safe_frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def format_feature_value(feature: str, value: object) -> str:
+    if feature == "gehalt":
+        return SALARY_DISPLAY.get(str(value), str(value))
+    if feature in ("arbeitsunfall", "foerderung_letzte_5_jahre"):
+        return "Ja" if int(float(value)) == 1 else "Nein"
+    if feature == "zufriedenheitsgrad":
+        return f"{float(value):.0f} %"
+    if feature == "durchschnittliche_monatliche_arbeitszeit":
+        return f"{float(value):.0f} Std."
+    return f"{float(value):.0f}"
+
+
+def create_importance_figure(importance: pd.DataFrame) -> plt.Figure:
+    ordered = importance.sort_values("importance", ascending=True)
+    values = ordered["importance"].clip(lower=0)
+    colors = ["#98bfc0" if value < values.max() * 0.5 else "#087f78" for value in values]
+    figure, axis = plt.subplots(figsize=(9, 4.8))
+    axis.barh(ordered["label"], values, color=colors, height=0.62)
+    axis.set_xlabel("Rückgang der Average Precision bei Permutation")
+    axis.set_ylabel("")
+    axis.grid(axis="x", alpha=0.18)
+    axis.spines[["top", "right", "left"]].set_visible(False)
+    figure.tight_layout()
+    return figure
+
+
+def create_sensitivity_figure(sensitivity: pd.DataFrame) -> plt.Figure:
+    ordered = sensitivity.sort_values("score_change", ascending=True)
+    colors = np.where(ordered["score_change"] >= 0, "#b86b00", "#087f78")
+    figure, axis = plt.subplots(figsize=(9, 4.8))
+    axis.barh(ordered["label"], ordered["score_change"] * 100, color=colors, height=0.62)
+    axis.axvline(0, color="#132238", linewidth=1)
+    axis.set_xlabel("Änderung des Abwanderungsscores in Prozentpunkten")
+    axis.set_ylabel("")
+    axis.grid(axis="x", alpha=0.18)
+    axis.spines[["top", "right", "left"]].set_visible(False)
+    figure.tight_layout()
+    return figure
+
+
+def create_confusion_figure(matrix: np.ndarray) -> plt.Figure:
+    figure, axis = plt.subplots(figsize=(5.8, 4.4))
+    image = axis.imshow(matrix, cmap="BuGn")
+    for row in range(2):
+        for column in range(2):
+            axis.text(
+                column,
+                row,
+                f"{int(matrix[row, column]):,}".replace(",", "."),
+                ha="center",
+                va="center",
+                fontsize=13,
+                fontweight="bold",
+                color="white" if matrix[row, column] > matrix.max() * 0.55 else "#132238",
+            )
+    axis.set_xticks([0, 1], ["Bleibt", "Signal"])
+    axis.set_yticks([0, 1], ["Bleibt", "Geht"])
+    axis.set_xlabel("Modellklassifikation")
+    axis.set_ylabel("Tatsächlicher Ausgang")
+    axis.set_title("Out-of-Fold-Konfusionsmatrix")
+    figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+    figure.tight_layout()
+    return figure
+
+
+def create_what_if_figure(
+    analysis: pd.DataFrame,
+    feature: str,
+    current_value: object,
+    threshold: float,
+) -> plt.Figure:
+    figure, axis = plt.subplots(figsize=(9, 4.6))
+    if feature in ("gehalt", "arbeitsunfall", "foerderung_letzte_5_jahre"):
+        labels = analysis["label"].replace({"0": "Nein", "1": "Ja"})
+        axis.bar(labels, analysis["score"] * 100, color="#087f78", width=0.58)
+    else:
+        axis.plot(analysis["value"], analysis["score"] * 100, color="#087f78", linewidth=2.8)
+        axis.fill_between(
+            analysis["value"].astype(float),
+            analysis["score"] * 100,
+            color="#087f78",
+            alpha=0.12,
+        )
+        axis.axvline(float(current_value), color="#132238", linestyle=":", label="Aktueller Wert")
+    axis.axhline(threshold * 100, color="#b86b00", linestyle="--", label="Signalschwelle")
+    axis.set_ylabel("Abwanderungsscore (%)")
+    axis.set_xlabel(DISPLAY_NAMES[feature])
+    axis.set_ylim(0, 100)
+    axis.grid(axis="y", alpha=0.18)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    return figure
+
+
+def create_distribution_figure(training_data: pd.DataFrame) -> plt.Figure:
+    figure, axes = plt.subplots(2, 3, figsize=(13, 7.5), constrained_layout=True)
+    axes = axes.ravel()
+    stayed = training_data[training_data["left"] == 0]
+    left = training_data[training_data["left"] == 1]
+
+    for axis, feature in zip(axes, FEATURES, strict=True):
+        if feature in ("arbeitsunfall", "foerderung_letzte_5_jahre", "gehalt"):
+            counts = training_data.groupby([feature, "left"]).size().unstack(fill_value=0)
+            counts.plot(kind="bar", ax=axis, color=["#61a8a2", "#d59a44"], width=0.72)
+            axis.tick_params(axis="x", rotation=0)
+            axis.legend(["Bleibt", "Geht"], frameon=False, fontsize=8)
         else:
-            min_val = data[selected_feature].min()
-            max_val = data[selected_feature].max()
-            value_range = np.linspace(min_val, max_val, 50)
-            predictions_for_values = []
-            
-            for val in value_range:
-                temp_df = df.copy()
-                temp_df[selected_feature] = val
-                pred_prob = model.predict_proba(temp_df)[0][1]
-                predictions_for_values.append(pred_prob)
-            
-            fig_influence, ax_influence = plt.subplots(figsize=(10, 6))
-            ax_influence.plot(value_range, predictions_for_values, linewidth=3, color='#3498db')
-            ax_influence.fill_between(value_range, predictions_for_values, alpha=0.3, color='#3498db')
-            ax_influence.axhline(y=0.5, color='r', linestyle='--', label='Entscheidungsgrenze', linewidth=2)
-            ax_influence.axvline(x=df[selected_feature].iloc[0], color='green', linestyle=':', 
-                               label='Aktueller Wert', linewidth=2)
-            ax_influence.set_xlabel(feature_names_display[selected_feature], fontsize=12)
-            ax_influence.set_ylabel('Wahrscheinlichkeit zu gehen', fontsize=12)
-            ax_influence.set_title(f'Einfluss von {feature_names_display[selected_feature]} auf die Vorhersage', 
-                                 fontsize=14, fontweight='bold')
-            ax_influence.grid(alpha=0.3)
-            ax_influence.legend()
-            
-            plt.tight_layout()
-            st.pyplot(fig_influence)
-            plt.close()
-        
-        st.info("💡 **Interpretation:** Diese Kurve zeigt, wie sich die Vorhersage für Ihre aktuelle Eingabe ändert, wenn Sie nur dieses eine Feature variieren. Dies hilft zu verstehen, welcher Wert für dieses Feature das Risiko minimieren würde.")
-    
-    st.write('---')
-    
-except Exception as e:
-    st.error(f"Fehler beim Trainieren des Modells: {e}")
+            axis.hist(
+                [stayed[feature], left[feature]],
+                bins=24,
+                label=["Bleibt", "Geht"],
+                color=["#61a8a2", "#d59a44"],
+                alpha=0.72,
+            )
+            axis.legend(frameon=False, fontsize=8)
+        axis.set_title(DISPLAY_NAMES[feature], fontsize=10, fontweight="bold")
+        axis.set_xlabel("")
+        axis.set_ylabel("Anzahl")
+        axis.grid(axis="y", alpha=0.15)
+        axis.spines[["top", "right"]].set_visible(False)
+    return figure
+
+
+def render_validation_messages(errors: tuple[str, ...], warnings: tuple[str, ...]) -> None:
+    if errors:
+        st.error("Die Datei kann noch nicht ausgewertet werden.")
+        for error in errors:
+            st.markdown(f"- {error}")
+    if warnings:
+        with st.expander(f"{len(warnings)} Datenhinweis(e)"):
+            for warning in warnings:
+                st.markdown(f"- {warning}")
+
+
+apply_theme()
+
+try:
+    data_modified_time = DATA_PATH.stat().st_mtime_ns
+    with st.spinner("Modell und Qualitätsprüfung werden vorbereitet …"):
+        data = get_training_data(str(DATA_PATH), data_modified_time)
+        model = get_model_bundle(str(DATA_PATH), data_modified_time)
+except (OSError, DataValidationError, ValueError) as error:
+    st.error(f"Die Anwendung konnte nicht gestartet werden: {error}")
     st.stop()
 
-# File upload and prediction
-st.sidebar.header('Datei-Upload')
-uploaded_file = st.sidebar.file_uploader("Laden Sie eine Excel- oder CSV-Datei hoch", type=["csv", "xlsx"])
+if "prediction_history" not in st.session_state:
+    st.session_state.prediction_history = []
 
-if uploaded_file:
-    try:
-        # Load file
-        if uploaded_file.name.endswith('.csv'):
-            input_df = pd.read_csv(uploaded_file)
-        else:
-            input_df = pd.read_excel(uploaded_file)
-        
-        # Validate file is not empty
-        if len(input_df) == 0:
-            st.sidebar.error("❌ Die hochgeladene Datei ist leer!")
-            st.sidebar.info("Bitte laden Sie eine Datei mit mindestens einem Datensatz hoch.")
-            st.stop()
+st.markdown(
+    """
+    <section class="hero">
+        <div class="hero-kicker">People Analytics · Responsible ML</div>
+        <h1>Fluktuationsradar</h1>
+        <p>
+            Ein transparenter Frühwarnindikator für Mitarbeiterfluktuation – mit
+            Einzelanalyse, Stapelverarbeitung und nachvollziehbarer Modellqualität.
+        </p>
+        <span class="pill">Datenschutzfreundliche Sitzung</span>
+        <span class="pill">Leckagearme Evaluation</span>
+        <span class="pill">Keine automatisierte Personalentscheidung</span>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
 
-        # Check for the required columns
-        required_columns = ["zufriedenheitsgrad", "anzahl_projekte", "durchschnittliche_monatliche_arbeitszeit", "arbeitsunfall", "foerderung_letzte_5_jahre", "gehalt"]
-        missing_columns = []
-        
-        for col in required_columns:
-            if col not in input_df.columns:
-                missing_columns.append(col)
-        
-        if missing_columns:
-            st.sidebar.error(f"❌ Die folgenden Spalten fehlen in der Datei: {', '.join(missing_columns)}")
-            st.sidebar.info("**Erforderliche Spalten:** " + ", ".join(required_columns))
-            st.sidebar.markdown("""
-            **Spaltenformat:**
-            - zufriedenheitsgrad: 0-100 (Zufriedenheit in %)
-            - anzahl_projekte: 0-7 (Anzahl Projekte)
-            - durchschnittliche_monatliche_arbeitszeit: Stunden pro Monat
-            - arbeitsunfall: 0 (Nein) oder 1 (Ja)
-            - foerderung_letzte_5_jahre: 0 (Nein) oder 1 (Ja)
-            - gehalt: 'low', 'medium', 'high' oder 1, 2, 3
-            """)
-            st.stop()
-        
-        # Data quality checks
-        validation_errors = []
-        validation_warnings = []
-        
-        # Check for completely empty rows
-        empty_rows = input_df[required_columns].isna().all(axis=1).sum()
-        if empty_rows > 0:
-            validation_warnings.append(f"⚠️ {empty_rows} leere Zeilen gefunden (werden übersprungen)")
-            input_df = input_df[~input_df[required_columns].isna().all(axis=1)]
-        
-        # Check if all rows were empty
-        if len(input_df) == 0:
-            st.sidebar.error("❌ Alle Zeilen in der Datei sind leer!")
-            st.sidebar.info("Bitte laden Sie eine Datei mit gültigen Daten hoch.")
-            st.stop()
-        
-        # Validate data ranges and types
-        for idx, row in input_df.iterrows():
-            # Check zufriedenheitsgrad type and range
-            if pd.notna(row['zufriedenheitsgrad']):
-                try:
-                    val = float(row['zufriedenheitsgrad'])
-                    if val < 0 or val > 100:
-                        validation_errors.append(f"Zeile {idx+2}: zufriedenheitsgrad muss zwischen 0 und 100 liegen (ist {val})")
-                except (ValueError, TypeError):
-                    validation_errors.append(f"Zeile {idx+2}: zufriedenheitsgrad muss eine Zahl sein (ist '{row['zufriedenheitsgrad']}')")
-            
-            # Check anzahl_projekte type and range
-            if pd.notna(row['anzahl_projekte']):
-                try:
-                    val = int(row['anzahl_projekte'])
-                    if val < 0 or val > 7:
-                        validation_errors.append(f"Zeile {idx+2}: anzahl_projekte muss zwischen 0 und 7 liegen (ist {val})")
-                except (ValueError, TypeError):
-                    validation_errors.append(f"Zeile {idx+2}: anzahl_projekte muss eine ganze Zahl sein (ist '{row['anzahl_projekte']}')")
-            
-            # Check arbeitsunfall is binary
-            if pd.notna(row['arbeitsunfall']):
-                try:
-                    val = int(row['arbeitsunfall'])
-                    if val not in [0, 1]:
-                        validation_errors.append(f"Zeile {idx+2}: arbeitsunfall muss 0 oder 1 sein (ist {val})")
-                except (ValueError, TypeError):
-                    validation_errors.append(f"Zeile {idx+2}: arbeitsunfall muss 0 oder 1 sein (ist '{row['arbeitsunfall']}')")
-            
-            # Check foerderung is binary
-            if pd.notna(row['foerderung_letzte_5_jahre']):
-                try:
-                    val = int(row['foerderung_letzte_5_jahre'])
-                    if val not in [0, 1]:
-                        validation_errors.append(f"Zeile {idx+2}: foerderung_letzte_5_jahre muss 0 oder 1 sein (ist {val})")
-                except (ValueError, TypeError):
-                    validation_errors.append(f"Zeile {idx+2}: foerderung_letzte_5_jahre muss 0 oder 1 sein (ist '{row['foerderung_letzte_5_jahre']}')")
-        
-        # Check gehalt values (handle both string and numeric)
-        for idx, row in input_df.iterrows():
-            if pd.notna(row['gehalt']):
-                val = row['gehalt']
-                # Try as string first
-                if isinstance(val, str):
-                    if val.lower() not in ['low', 'medium', 'high', 'niedrig', 'mittel', 'hoch']:
-                        validation_errors.append(f"Zeile {idx+2}: gehalt muss 'low'/'medium'/'high' oder 'niedrig'/'mittel'/'hoch' sein (ist '{val}')")
-                # Then try as numeric
-                elif isinstance(val, (int, float)):
-                    if val not in [1, 2, 3]:
-                        validation_errors.append(f"Zeile {idx+2}: gehalt muss 1, 2 oder 3 sein (ist {val})")
-                else:
-                    validation_errors.append(f"Zeile {idx+2}: gehalt hat ungültigen Typ (ist {type(val).__name__})")
-        
-        # Count missing values per column
-        for col in required_columns:
-            missing_count = input_df[col].isna().sum()
-            if missing_count > 0:
-                percentage = (missing_count / len(input_df)) * 100
-                validation_warnings.append(f"⚠️ {col}: {missing_count} fehlende Werte ({percentage:.1f}%)")
-        
-        # Display validation results
-        if validation_errors:
-            st.sidebar.error("❌ **Validierungsfehler gefunden:**")
-            for error in validation_errors[:10]:  # Show first 10 errors
-                st.sidebar.error(error)
-            if len(validation_errors) > 10:
-                st.sidebar.error(f"... und {len(validation_errors) - 10} weitere Fehler")
-            st.sidebar.info("Bitte korrigieren Sie die Daten und laden Sie die Datei erneut hoch.")
-            st.stop()
-        
-        if validation_warnings:
-            st.sidebar.warning("⚠️ **Warnungen:**")
-            for warning in validation_warnings:
-                st.sidebar.warning(warning)
-            st.sidebar.info("Fehlende Werte werden durch den Durchschnitt ersetzt.")
-        
-        # Proceed with data processing
-        st.sidebar.success(f"✅ Validierung erfolgreich! {len(input_df)} Datensätze bereit zur Verarbeitung.")
-        
-        # Map salary column - handle both string and numeric values safely
-        salary_mapping = {
-            'low': 1, 'medium': 2, 'high': 3,
-            'niedrig': 1, 'mittel': 2, 'hoch': 3
-        }
-        
-        def normalize_salary(val):
-            if pd.isna(val):
-                return val
-            if isinstance(val, str):
-                return salary_mapping.get(val.lower(), val)
-            return val
-        
-        input_df['gehalt'] = input_df['gehalt'].apply(normalize_salary)
-        
-        # Fill any missing values with mean for the feature columns
-        input_df[features] = input_df[features].fillna(input_df[features].mean())
-        
-        # Make predictions
-        predictions = model.predict(input_df[features])
-        predictions_proba = model.predict_proba(input_df[features])
-        
-        # Add results to dataframe
-        result_mapping = {0: 'Er/Sie bleibt bei uns', 1: 'Er/Sie wird uns verlassen'}
-        input_df['Vorhersage'] = [result_mapping[pred] for pred in predictions]
-        input_df['Wahrscheinlichkeit (%)'] = [f"{proba.max() * 100:.1f}" for proba in predictions_proba]
-        
-        # Create a download button
-        csv_data = input_df.to_csv(index=False).encode('utf-8')
-        st.sidebar.download_button(
-            label="📥 Ergebnisse herunterladen (CSV)",
-            data=csv_data,
-            file_name='mitarbeiter_vorhersagen.csv',
-            mime='text/csv'
+headline_columns = st.columns(4)
+headline_columns[0].metric("Trainingsdatensätze", f"{model.trained_rows:,}".replace(",", "."))
+headline_columns[1].metric("Eindeutige Profile", f"{model.unique_profiles:,}".replace(",", "."))
+headline_columns[2].metric("ROC-AUC", f"{model.balanced_metrics['roc_auc']:.3f}")
+headline_columns[3].metric("Recall · ausgewogen", percent(model.balanced_metrics["recall"]))
+
+with st.sidebar:
+    st.markdown("## Analyse konfigurieren")
+    analysis_mode = st.radio(
+        "Betriebsmodus",
+        options=("Ausgewogen", "Hohe Sensitivität"),
+        help=(
+            "Der ausgewogene Modus optimiert F1. Hohe Sensitivität gewichtet das "
+            "Erkennen möglicher Abwanderungen stärker und erzeugt mehr Fehlalarme."
+        ),
+    )
+    active_threshold = (
+        model.balanced_threshold if analysis_mode == "Ausgewogen" else model.sensitive_threshold
+    )
+    active_metrics = (
+        model.balanced_metrics if analysis_mode == "Ausgewogen" else model.sensitive_metrics
+    )
+    st.caption(
+        f"Signalschwelle {active_threshold:.2f} · Recall {percent(active_metrics['recall'])} · "
+        f"Präzision {percent(active_metrics['precision'])}"
+    )
+
+    defaults = model.reference_values
+    with st.form("employee_profile", border=False):
+        st.markdown("### Mitarbeiterprofil")
+        satisfaction = st.slider(
+            "Zufriedenheitsgrad",
+            min_value=0,
+            max_value=100,
+            value=int(round(defaults["zufriedenheitsgrad"])),
+            help="Selbsteinschätzung oder standardisierter Befragungswert in Prozent.",
         )
-        
-        # Display results
-        st.header('Hochgeladene Datei und Vorhersagen')
-        st.write(f"**Anzahl der Datensätze:** {len(input_df)}")
-        
-        # Summary statistics
-        col1, col2 = st.columns(2)
-        with col1:
-            staying_count = sum(predictions == 0)
-            st.metric("Mitarbeiter bleiben", staying_count, f"{staying_count/len(predictions)*100:.1f}%")
-        with col2:
-            leaving_count = sum(predictions == 1)
-            st.metric("Mitarbeiter gehen wahrscheinlich", leaving_count, f"{leaving_count/len(predictions)*100:.1f}%")
-        
-        # Show the dataframe with pagination for large datasets
-        if len(input_df) > 1000:
-            st.info(f"Zeige erste 1000 von {len(input_df)} Datensätzen. Alle Ergebnisse sind in der herunterladbaren Datei enthalten.")
-            st.dataframe(input_df.head(1000), use_container_width=True)
+        projects = st.slider(
+            "Anzahl Projekte",
+            min_value=int(data["anzahl_projekte"].min()),
+            max_value=int(data["anzahl_projekte"].max()),
+            value=int(round(defaults["anzahl_projekte"])),
+        )
+        monthly_hours = st.slider(
+            "Monatliche Arbeitszeit",
+            min_value=int(data["durchschnittliche_monatliche_arbeitszeit"].min()),
+            max_value=int(data["durchschnittliche_monatliche_arbeitszeit"].max()),
+            value=int(round(defaults["durchschnittliche_monatliche_arbeitszeit"])),
+            step=1,
+        )
+        work_accident = st.selectbox("Arbeitsunfall", options=("Nein", "Ja"))
+        promoted = st.selectbox("Förderung in den letzten 5 Jahren", options=("Nein", "Ja"))
+        salary_label = st.selectbox(
+            "Gehaltsstufe",
+            options=("Niedrig", "Mittel", "Hoch"),
+            index=("Niedrig", "Mittel", "Hoch").index(SALARY_DISPLAY[str(defaults["gehalt"])]),
+        )
+        submitted = st.form_submit_button(
+            "Profil analysieren",
+            type="primary",
+            width="stretch",
+        )
+
+    st.info(
+        "Das Ergebnis unterstützt eine vertiefende Analyse. Es darf nicht allein für "
+        "Kündigungen, Beförderungen oder andere Personalmaßnahmen verwendet werden."
+    )
+
+salary_reverse = {label: value for value, label in SALARY_DISPLAY.items()}
+profile = pd.DataFrame(
+    [
+        {
+            "zufriedenheitsgrad": satisfaction,
+            "anzahl_projekte": projects,
+            "durchschnittliche_monatliche_arbeitszeit": monthly_hours,
+            "arbeitsunfall": int(work_accident == "Ja"),
+            "foerderung_letzte_5_jahre": int(promoted == "Ja"),
+            "gehalt": salary_reverse[salary_label],
+        }
+    ]
+)
+churn_score = float(predict_scores(model, profile)[0])
+has_signal = churn_score >= active_threshold
+
+if submitted:
+    st.session_state.prediction_history.insert(
+        0,
+        {
+            "Zeitpunkt": datetime.now().astimezone().strftime("%d.%m.%Y %H:%M:%S"),
+            "Zufriedenheit": satisfaction,
+            "Projekte": projects,
+            "Arbeitsstunden": monthly_hours,
+            "Arbeitsunfall": work_accident,
+            "Förderung": promoted,
+            "Gehalt": salary_label,
+            "Abwanderungsscore (%)": round(churn_score * 100, 1),
+            "Modellsignal": "Erhöht" if has_signal else "Unauffällig",
+            "Modus": analysis_mode,
+        },
+    )
+    st.session_state.prediction_history = st.session_state.prediction_history[:100]
+
+single_tab, batch_tab, quality_tab, method_tab, history_tab = st.tabs(
+    [
+        "Einzelanalyse",
+        "Stapelprognose",
+        "Modellqualität",
+        "Daten & Methodik",
+        "Sitzungsverlauf",
+    ]
+)
+
+with single_tab:
+    result_class = "high" if has_signal else "low"
+    result_title = "Erhöhtes Abwanderungssignal" if has_signal else "Unauffälliges Modellsignal"
+    result_copy = (
+        "Das Profil liegt oberhalb der gewählten Frühwarnschwelle. Prüfen Sie den Kontext "
+        "in einem fairen, menschlich geführten Gespräch."
+        if has_signal
+        else "Das Profil liegt unterhalb der gewählten Frühwarnschwelle. Das schließt eine "
+        "spätere Abwanderung nicht aus."
+    )
+    st.markdown(
+        f"""
+        <div class="result-card {result_class}">
+            <div class="result-label">Aktuelles Ergebnis · {analysis_mode}</div>
+            <div class="result-title">{result_title}</div>
+            <div class="result-copy">{result_copy}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    result_columns = st.columns(4)
+    result_columns[0].metric("Abwanderungsscore", percent(churn_score))
+    result_columns[1].metric("Bleibensscore", percent(1 - churn_score))
+    result_columns[2].metric("Signalschwelle", f"{active_threshold:.2f}")
+    result_columns[3].metric("Betriebsmodus", analysis_mode)
+    st.progress(
+        churn_score,
+        text=f"Modellscore: {percent(churn_score)} · Schwelle: {percent(active_threshold)}",
+    )
+    st.caption(
+        "Der Score ist eine Modellschätzung aus sechs Merkmalen und keine Gewissheit oder "
+        "Kausalaussage."
+    )
+
+    insight_column, peer_column = st.columns([1.65, 1])
+    with insight_column:
+        st.subheader("Einfluss des aktuellen Profils")
+        sensitivity = local_sensitivity(model, profile)
+        sensitivity_figure = create_sensitivity_figure(sensitivity)
+        st.pyplot(sensitivity_figure, width="stretch")
+        plt.close(sensitivity_figure)
+        st.caption(
+            "Jeder Balken zeigt die Scoreänderung, wenn nur dieses Merkmal auf den "
+            "Trainingsreferenzwert gesetzt wird. Wechselwirkungen bleiben bestehen."
+        )
+
+    with peer_column:
+        st.subheader("Ähnliche Profile")
+        peer_summary = find_similar_profiles(data, profile)
+        with st.container(border=True):
+            st.metric(
+                "Historische Fluktuationsrate",
+                percent(float(peer_summary["churn_rate"])),
+            )
+            st.write(
+                f"Aus den **{int(peer_summary['count'])} ähnlichsten Profilen** im "
+                "Trainingsdatensatz."
+            )
+            st.caption(
+                "Die Ähnlichkeit basiert auf standardisierten Merkmalsabständen. Sie ist "
+                "deskriptiv und keine individuelle Erklärung."
+            )
+
+        detail_table = sensitivity.copy()
+        detail_table["Aktueller Wert"] = [
+            format_feature_value(feature, value)
+            for feature, value in zip(
+                detail_table["feature"], detail_table["current_value"], strict=True
+            )
+        ]
+        detail_table["Referenz"] = [
+            format_feature_value(feature, value)
+            for feature, value in zip(
+                detail_table["feature"], detail_table["reference_value"], strict=True
+            )
+        ]
+        detail_table["Scoreänderung"] = detail_table["score_change"].map(
+            lambda value: f"{value * 100:+.1f} Pp."
+        )
+        st.dataframe(
+            detail_table[["label", "Aktueller Wert", "Referenz", "Scoreänderung"]].rename(
+                columns={"label": "Merkmal"}
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+
+    st.divider()
+    st.subheader("What-if-Analyse")
+    st.write(
+        "Verändern Sie genau ein Merkmal. Die Darstellung zeigt Sensitivität, keine "
+        "Handlungsempfehlung und keinen kausalen Effekt."
+    )
+    what_if_feature = st.selectbox(
+        "Merkmal auswählen",
+        options=FEATURES,
+        format_func=lambda feature: DISPLAY_NAMES[feature],
+        key="what_if_feature",
+    )
+    what_if_data = what_if_analysis(model, profile, what_if_feature, data)
+    what_if_figure = create_what_if_figure(
+        what_if_data,
+        what_if_feature,
+        profile.iloc[0][what_if_feature],
+        active_threshold,
+    )
+    st.pyplot(what_if_figure, width="stretch")
+    plt.close(what_if_figure)
+
+with batch_tab:
+    st.subheader("Mehrere Profile sicher auswerten")
+    st.write(
+        "CSV- und Excel-Dateien werden vektorisiert geprüft. Deutsche und englische "
+        "Spaltennamen sowie deutsche, englische und numerische Gehaltsstufen werden erkannt."
+    )
+    template = pd.DataFrame(
+        [
+            {
+                "zufriedenheitsgrad": 68,
+                "anzahl_projekte": 4,
+                "durchschnittliche_monatliche_arbeitszeit": 190,
+                "arbeitsunfall": 0,
+                "foerderung_letzte_5_jahre": 0,
+                "gehalt": "mittel",
+            },
+            {
+                "zufriedenheitsgrad": 32,
+                "anzahl_projekte": 6,
+                "durchschnittliche_monatliche_arbeitszeit": 265,
+                "arbeitsunfall": 0,
+                "foerderung_letzte_5_jahre": 0,
+                "gehalt": "niedrig",
+            },
+        ]
+    )
+    st.download_button(
+        "CSV-Vorlage herunterladen",
+        data=safe_csv_bytes(template),
+        file_name="vorlage_mitarbeiterprofile.csv",
+        mime="text/csv",
+    )
+    uploaded_file = st.file_uploader(
+        "CSV- oder Excel-Datei auswählen",
+        type=("csv", "xlsx"),
+        help="Maximal 15 MB und 50.000 Datenzeilen.",
+    )
+
+    if uploaded_file is not None:
+        if uploaded_file.size > 15 * 1024 * 1024:
+            st.error("Die Datei ist größer als 15 MB.")
         else:
-            st.dataframe(input_df, use_container_width=True)
-        st.write('---')
+            try:
+                uploaded_data = read_uploaded_table(uploaded_file)
+            except (ValueError, OSError, UnicodeError) as error:
+                st.error(f"Die Datei konnte nicht gelesen werden: {error}")
+            else:
+                uploaded_data = uploaded_data.dropna(how="all").reset_index(drop=True)
+                if len(uploaded_data) > 50_000:
+                    st.error("Die Datei enthält mehr als 50.000 Datenzeilen.")
+                else:
+                    report = validate_feature_frame(uploaded_data, allow_missing=True)
+                    render_validation_messages(report.errors, report.warnings)
+                    if not report.errors:
+                        batch_scores = predict_scores(model, report.features)
+                        batch_signals = batch_scores >= active_threshold
+                        output = uploaded_data.copy()
+                        output["Abwanderungsscore (%)"] = np.round(batch_scores * 100, 1)
+                        output["Bleibensscore (%)"] = np.round((1 - batch_scores) * 100, 1)
+                        output["Modellsignal"] = np.where(batch_signals, "Erhöht", "Unauffällig")
+                        output["Analysemodus"] = analysis_mode
 
-    except Exception as e:
-        st.sidebar.error(f"Fehler beim Verarbeiten der Datei: {e}")
-        st.sidebar.info("Stellen Sie sicher, dass die Datei die erforderlichen Spalten enthält und korrekt formatiert ist.")
+                        summary_columns = st.columns(3)
+                        summary_columns[0].metric("Verarbeitete Profile", len(output))
+                        summary_columns[1].metric("Erhöhte Signale", int(batch_signals.sum()))
+                        summary_columns[2].metric(
+                            "Mittlerer Score", percent(float(batch_scores.mean()))
+                        )
+                        st.download_button(
+                            "Auswertung als CSV herunterladen",
+                            data=safe_csv_bytes(output),
+                            file_name="fluktuationsradar_auswertung.csv",
+                            mime="text/csv",
+                            type="primary",
+                        )
+                        st.dataframe(
+                            output.head(2_000),
+                            hide_index=True,
+                            width="stretch",
+                        )
+                        if len(output) > 2_000:
+                            st.caption(
+                                "In der Vorschau werden 2.000 Zeilen angezeigt; der Download "
+                                "enthält die vollständige Auswertung."
+                            )
 
-# Prediction History and Analytics Section
-st.markdown("---")
-st.header('📜 Vorhersage-Historie und Analyse')
-st.write("Sehen Sie vergangene Vorhersagen und Trends im Zeitverlauf.")
+with quality_tab:
+    st.subheader("Nachvollziehbare Modellgüte")
+    st.markdown(
+        """
+        <div class="method-note">
+            Die Kennzahlen stammen aus fünffacher, stratifizierter Gruppen-Kreuzvalidierung.
+            Identische Merkmalsprofile werden derselben Falte zugeordnet und können dadurch
+            nicht gleichzeitig in Training und Prüfung vorkommen. Das reduziert die sonst
+            deutlich zu optimistische Bewertung durch Duplikat-Leckage.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-history_tab1, history_tab2 = st.tabs(["Statistiken", "Verlauf"])
+    metric_columns = st.columns(5)
+    metric_columns[0].metric("Balanced Accuracy", percent(active_metrics["balanced_accuracy"]))
+    metric_columns[1].metric("Recall", percent(active_metrics["recall"]))
+    metric_columns[2].metric("Präzision", percent(active_metrics["precision"]))
+    metric_columns[3].metric("F1", f"{active_metrics['f1']:.3f}")
+    metric_columns[4].metric("Average Precision", f"{active_metrics['average_precision']:.3f}")
 
-with history_tab1:
-    st.subheader("Gesamt-Statistiken")
-    
-    stats = get_prediction_statistics()
-    
-    if stats:
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Gesamt-Vorhersagen", stats['total'])
-        with col2:
-            st.metric("Vorhersage: Geht", stats['predicted_leave'], 
-                     f"{stats['leave_percentage']:.1f}%")
-        with col3:
-            st.metric("Vorhersage: Bleibt", stats['predicted_stay'],
-                     f"{100 - stats['leave_percentage']:.1f}%")
-        
-        st.write("---")
-        
-        # Pie chart of predictions
-        fig_stats, ax_stats = plt.subplots(figsize=(8, 6))
-        sizes = [stats['predicted_stay'], stats['predicted_leave']]
-        labels = ['Bleibt', 'Geht']
-        colors = ['#2ecc71', '#e74c3c']
-        explode = (0.05, 0.05)
-        
-        ax_stats.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-                    shadow=True, startangle=90, textprops={'fontsize': 12, 'fontweight': 'bold'})
-        ax_stats.set_title('Verteilung der Vorhersagen', fontsize=14, fontweight='bold')
-        
-        plt.tight_layout()
-        st.pyplot(fig_stats)
-        plt.close()
-        
-        st.info(f"📊 **Durchschnittliche Abwanderungswahrscheinlichkeit:** {stats['avg_probability_leaves']*100:.1f}%")
-    else:
-        st.info("Noch keine Vorhersagen in der Datenbank. Führen Sie eine Vorhersage durch, um Statistiken zu sehen.")
+    mode_comparison = pd.DataFrame(
+        [
+            {
+                "Modus": "Ausgewogen",
+                "Schwelle": model.balanced_threshold,
+                "Recall": model.balanced_metrics["recall"],
+                "Präzision": model.balanced_metrics["precision"],
+                "F1": model.balanced_metrics["f1"],
+                "Spezifität": model.balanced_metrics["specificity"],
+            },
+            {
+                "Modus": "Hohe Sensitivität",
+                "Schwelle": model.sensitive_threshold,
+                "Recall": model.sensitive_metrics["recall"],
+                "Präzision": model.sensitive_metrics["precision"],
+                "F1": model.sensitive_metrics["f1"],
+                "Spezifität": model.sensitive_metrics["specificity"],
+            },
+        ]
+    )
+    for column in ("Recall", "Präzision", "Spezifität"):
+        mode_comparison[column] = mode_comparison[column].map(percent)
+    mode_comparison["Schwelle"] = mode_comparison["Schwelle"].map(lambda value: f"{value:.3f}")
+    mode_comparison["F1"] = mode_comparison["F1"].map(lambda value: f"{value:.3f}")
 
-with history_tab2:
-    st.subheader("Letzte Vorhersagen")
-    
-    records = get_prediction_history(limit=50)
-    
-    if records:
-        # Convert to dataframe
-        history_data = []
-        for record in records:
-            history_data.append({
-                'Zeitstempel': record.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-                'Zufriedenheit': f"{record.zufriedenheit*100:.0f}%",
-                'Projekte': record.anzahl_projekte,
-                'Arbeitsstunden': record.durchschnittliche_monatliche_arbeitsstunden,
-                'Jahre': record.jahre_im_unternehmen,
-                'Abteilung': record.abteilung,
-                'Gehalt': record.gehalt.capitalize(),
-                'Vorhersage': 'Bleibt' if record.prediction == 0 else 'Geht',
-                'Wahrscheinlichkeit': f"{record.probability_leaves*100:.1f}%"
-            })
-        
-        history_df = pd.DataFrame(history_data)
-        
-        st.write(f"**Zeige die letzten {len(history_df)} Vorhersagen:**")
-        st.dataframe(history_df, use_container_width=True)
-        
-        # Download button for history
-        csv_history = history_df.to_csv(index=False).encode('utf-8')
+    st.dataframe(mode_comparison, hide_index=True, width="stretch")
+
+    confusion_column, importance_column = st.columns([1, 1.5])
+    with confusion_column:
+        st.markdown("#### Fehlerbild · ausgewogener Modus")
+        confusion_figure = create_confusion_figure(model.confusion)
+        st.pyplot(confusion_figure, width="stretch")
+        plt.close(confusion_figure)
+    with importance_column:
+        st.markdown("#### Globale Merkmalswichtigkeit")
+        importance_figure = create_importance_figure(model.feature_importance)
+        st.pyplot(importance_figure, width="stretch")
+        plt.close(importance_figure)
+        st.caption(
+            "Permutation Importance misst den Leistungsabfall auf einer isolierten Prüffalte. "
+            "Sie beschreibt Relevanz im Modell, nicht Ursache oder Fairness."
+        )
+
+with method_tab:
+    st.subheader("Datenbasis und Modellmethodik")
+    distribution_figure = create_distribution_figure(data)
+    st.pyplot(distribution_figure, width="stretch")
+    plt.close(distribution_figure)
+
+    dictionary = pd.DataFrame(
+        [
+            ("Zufriedenheitsgrad", "Numerisch", "0–100 %"),
+            ("Anzahl Projekte", "Ganzzahl", "Im Datensatz 2–7"),
+            ("Monatliche Arbeitszeit", "Ganzzahl", "Im Datensatz 96–310 Stunden"),
+            ("Arbeitsunfall", "Binär", "Nein / Ja"),
+            ("Förderung in den letzten 5 Jahren", "Binär", "Nein / Ja"),
+            ("Gehaltsstufe", "Kategorie", "Niedrig / Mittel / Hoch"),
+            ("Fluktuation", "Zielvariable", "Bleibt / Geht"),
+        ],
+        columns=("Merkmal", "Typ", "Wertebereich"),
+    )
+    st.dataframe(dictionary, hide_index=True, width="stretch")
+
+    limitation_column, engineering_column = st.columns(2)
+    with limitation_column:
+        st.markdown("#### Fachliche Grenzen")
+        st.markdown(
+            """
+            - Das Modell kennt nur die sechs dokumentierten Merkmale.
+            - Abteilung, Betriebszugehörigkeit, Rolle und externe Arbeitsmarktfaktoren fehlen.
+            - Historische Muster können Verzerrungen enthalten und ändern sich über die Zeit.
+            - Scores dürfen nicht als Beweis für eine individuelle Kündigungsabsicht gelten.
+            - Vor einem produktiven Einsatz sind Datenschutz-, Mitbestimmungs- und Fairnessprüfungen nötig.
+            """
+        )
+    with engineering_column:
+        st.markdown("#### Technische Verbesserungen")
+        st.markdown(
+            """
+            - Intakter Quelldatensatz statt der beschädigten abgeleiteten CSV
+            - Gecachtes Training statt Neutraining bei jeder Interaktion
+            - Histogram Gradient Boosting für nichtlineare Zusammenhänge
+            - One-Hot-Encoding statt künstlicher Abstände zwischen Gehaltsstufen
+            - Gruppenbasierte Kreuzvalidierung gegen Duplikat-Leckage
+            - F1- und F2-optimierte, datenbasierte Signalschwellen
+            - Vektorisierte Datei- und Wertevalidierung
+            """
+        )
+
+with history_tab:
+    st.subheader("Analysen dieser Sitzung")
+    st.write(
+        "Aus Datenschutzgründen wird der Verlauf nur in der aktuellen Streamlit-Sitzung "
+        "gehalten. Es werden keine eingegebenen Mitarbeiterprofile an einen externen Dienst gesendet."
+    )
+    if st.session_state.prediction_history:
+        history = pd.DataFrame(st.session_state.prediction_history)
         st.download_button(
-            label="📥 Historie herunterladen (CSV)",
-            data=csv_history,
-            file_name='vorhersage_historie.csv',
-            mime='text/csv'
+            "Sitzungsverlauf als CSV herunterladen",
+            data=safe_csv_bytes(history),
+            file_name="fluktuationsradar_sitzungsverlauf.csv",
+            mime="text/csv",
         )
-        
-        # Time series chart if enough data
-        if len(records) > 5:
-            st.write("---")
-            st.subheader("Trend der Abwanderungsvorhersagen")
-            
-            timestamps = [record.timestamp for record in reversed(records)]
-            probabilities = [record.probability_leaves * 100 for record in reversed(records)]
-            
-            fig_trend, ax_trend = plt.subplots(figsize=(12, 6))
-            ax_trend.plot(timestamps, probabilities, marker='o', linewidth=2, markersize=6, color='#3498db')
-            ax_trend.axhline(y=50, color='r', linestyle='--', label='Entscheidungsgrenze', linewidth=2)
-            ax_trend.fill_between(timestamps, probabilities, alpha=0.3, color='#3498db')
-            ax_trend.set_xlabel('Zeitstempel', fontsize=12)
-            ax_trend.set_ylabel('Abwanderungswahrscheinlichkeit (%)', fontsize=12)
-            ax_trend.set_title('Zeitverlauf der Abwanderungsvorhersagen', fontsize=14, fontweight='bold')
-            ax_trend.grid(alpha=0.3)
-            ax_trend.legend()
-            plt.xticks(rotation=45, ha='right')
-            
-            plt.tight_layout()
-            st.pyplot(fig_trend)
-            plt.close()
+        if st.button("Sitzungsverlauf löschen"):
+            st.session_state.prediction_history = []
+            st.rerun()
+        st.dataframe(history, hide_index=True, width="stretch")
     else:
-        st.info("Noch keine Vorhersagen in der Historie. Führen Sie eine Vorhersage durch, um sie hier zu sehen.")
+        st.info(
+            "Noch keine gespeicherte Analyse. Klicken Sie links auf „Profil analysieren“, "
+            "um das aktuelle Profil in den Sitzungsverlauf aufzunehmen."
+        )
 
-# Footer with additional information
-st.markdown("---")
-st.markdown("""
-**Über diese App:**
-- Diese App verwendet einen Random Forest Klassifikator zur Vorhersage der Mitarbeiterabwanderung
-- Das Modell wird mit den vorhandenen Daten trainiert und erreicht eine Genauigkeit von etwa 98%
-- Für beste Ergebnisse stellen Sie sicher, dass alle Eingabeparameter korrekt ausgefüllt sind
-
-**Entwickelt mit:** Streamlit, Scikit-learn, Pandas
-""")
+st.markdown(
+    f"""
+    <div class="footer">
+        Fluktuationsradar · Modell {MODEL_VERSION} · Streamlit Community Cloud ready<br>
+        Frühwarnindikator für analytische und wissenschaftliche Zwecke – menschliche Prüfung erforderlich.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)

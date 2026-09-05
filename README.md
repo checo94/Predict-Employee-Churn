@@ -1,166 +1,156 @@
-# Overview
+# Fluktuationsradar
 
-This is a comprehensive German-language employee churn prediction application (Mitarbeiter-Fluktuation Vorhersage) built with Streamlit and machine learning. The application allows users to predict the likelihood of employee turnover based on various metrics including satisfaction level, number of projects, average monthly working hours, work accidents, promotions, department, and salary level. The app uses a Random Forest Classifier to make predictions and provides extensive data visualization, explainable AI features, and historical tracking.
+[![Quality checks](https://github.com/kostasppz/Predict-Employee-Churn/actions/workflows/ci.yml/badge.svg)](https://github.com/kostasppz/Predict-Employee-Churn/actions/workflows/ci.yml)
 
-# Recent Changes
+Eine deutschsprachige Streamlit-Anwendung zur transparenten Analyse von
+Mitarbeiterfluktuation. Die Anwendung unterstützt Einzelanalysen und CSV-/Excel-Dateien,
+zeigt die geprüfte Modellgüte und macht Sensitivitäten sichtbar.
 
-**Date: October 18, 2025**
-- Implemented comprehensive data visualization dashboard with feature importance charts and distribution plots
-- Added explainable AI section with value comparisons, historical churn rates for similar profiles, and what-if sensitivity analysis
-- Created PostgreSQL database integration for prediction history tracking and analytics
-- Enhanced file upload validation with detailed error handling, type checking, and mixed-format support
-- All features are in German to match user requirements
+> **Wichtiger Verwendungshinweis:** Das Ergebnis ist ein statistischer Frühwarnindikator.
+> Es ist keine Feststellung einer individuellen Kündigungsabsicht und darf nicht allein für
+> Kündigungen, Beförderungen, Vergütung oder andere Personalentscheidungen verwendet werden.
 
-# User Preferences
+## Funktionen
 
-- Preferred communication style: Simple, everyday language
-- Application language: German (Deutsch)
-- Focus on practical usability and clear explanations
+- Moderne, responsive Streamlit-Oberfläche in deutscher Sprache
+- Einzelanalyse mit Abwanderungs- und Bleibensscore
+- Zwei dokumentierte Betriebsmodi:
+  - **Ausgewogen:** datenbasierte Schwelle mit F1-Optimierung
+  - **Hohe Sensitivität:** F2-Optimierung für höheren Recall bei mehr Fehlalarmen
+- What-if-Analyse für jeweils ein verändertes Merkmal
+- Vergleich mit ähnlichen historischen Profilen
+- Modellunabhängige Permutation Importance auf einer isolierten Prüffalte
+- Vektorisierte Validierung von CSV- und Excel-Dateien
+- Download der Stapelergebnisse als Excel-kompatible UTF-8-CSV
+- Datenschutzfreundlicher Verlauf nur innerhalb der aktuellen Sitzung
+- Automatische Qualitätsprüfungen mit Ruff und Pytest
 
-# System Architecture
+## Modell und Evaluation
 
-## Application Structure
+Die Pipeline verwendet einen `HistGradientBoostingClassifier`. Dieses Verfahren verarbeitet
+nichtlineare Zusammenhänge effizient und benötigt deutlich weniger Modellobjekte als große
+Random-Forest-Ensembles. Die Datenvorbereitung ist Bestandteil derselben Scikit-learn-Pipeline:
 
-**Main Application (app.py):**
-- Single employee prediction interface with sidebar inputs
-- Bulk CSV/Excel upload with comprehensive validation
-- Data visualization dashboard
-- Explainable AI prediction explanations
-- Prediction history and analytics
+- Median-Imputation für numerische Werte
+- Modus-Imputation und One-Hot-Encoding für die Gehaltsstufe
+- feste Zufallsbasis für reproduzierbare Ergebnisse
+- fünfteilige `StratifiedGroupKFold`-Kreuzvalidierung
+- identische Merkmalsprofile immer in derselben Falte
+- Out-of-Fold-Prognosen für alle angezeigten Qualitätskennzahlen
+- F1- und F2-optimierte Schwellen ausschließlich aus Out-of-Fold-Ergebnissen
 
-**Database Module (database.py):**
-- SQLAlchemy ORM models for prediction history
-- PostgreSQL integration with graceful degradation
-- Automatic prediction tracking
+Die Gruppierung ist wichtig: Der Quelldatensatz enthält wiederholte Merkmalsprofile. Eine
+gewöhnliche zufällige Aufteilung könnte dieselben Profile gleichzeitig in Training und Test
+platzieren und dadurch eine zu optimistische Genauigkeit melden.
 
-## Frontend Architecture
+### Verifizierte Out-of-Fold-Ergebnisse
 
-**Technology:** Streamlit web framework
-- **Rationale:** Streamlit provides a simple, Python-native way to build interactive data applications
-- **Layout:** Wide layout configuration for optimal data visualization
-- **Server Configuration:** Configured via `.streamlit/config.toml` to bind to 0.0.0.0:5000
-- **User Interface Components:**
-  - Sidebar for input parameters and file upload
-  - Main area divided into tabs for predictions, visualizations, and analytics
-  - Interactive sliders, dropdowns, and file uploaders
+| Modus | Schwelle | Balanced Accuracy | Präzision | Recall | F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ausgewogen | 0,369 | 91,45 % | 85,83 % | 87,38 % | 0,866 |
+| Hohe Sensitivität | 0,149 | 91,95 % | 78,18 % | 91,88 % | 0,845 |
 
-## Machine Learning Pipeline
+Schwellenunabhängig erreicht das Modell `ROC-AUC = 0,966` und
+`Average Precision = 0,935`. Die Werte werden bei jedem Training reproduzierbar aus
+14.999 Out-of-Fold-Prognosen berechnet. Weitere Details stehen in der
+[Modellkarte](MODEL_CARD.md).
 
-**Model:** Random Forest Classifier (scikit-learn)
-- **Rationale:** Random Forest provides excellent accuracy (98%), handles mixed data types, and offers built-in feature importance
-- **Training Approach:** 80/20 train-test split with fixed random state for reproducibility
-- **Hyperparameters:** 100 estimators, max depth of 5 to prevent overfitting
+## Verwendete Merkmale
 
-**Features:**
-- Numerical: zufriedenheitsgrad (satisfaction 0-100%), anzahl_projekte (projects 0-7), durchschnittliche_monatliche_arbeitszeit (monthly hours)
-- Binary: arbeitsunfall (work accident 0/1), foerderung_letzte_5_jahre (promotion 0/1)
-- Categorical: gehalt (salary: low/medium/high or 1/2/3)
+| Spalte | Bedeutung | Werte |
+| --- | --- | --- |
+| `zufriedenheitsgrad` | Zufriedenheitswert | 0–100 |
+| `anzahl_projekte` | Anzahl paralleler Projekte | im Trainingsdatensatz 2–7 |
+| `durchschnittliche_monatliche_arbeitszeit` | Arbeitsstunden pro Monat | im Trainingsdatensatz 96–310 |
+| `arbeitsunfall` | Arbeitsunfall | 0 oder 1 |
+| `foerderung_letzte_5_jahre` | Förderung/Beförderung | 0 oder 1 |
+| `gehalt` | Gehaltsstufe | low/medium/high, niedrig/mittel/hoch oder 1/2/3 |
 
-**Data Preprocessing:**
-- Missing value imputation using mean values
-- Salary normalization supporting both English (low/medium/high) and German (niedrig/mittel/hoch) formats
-- Flexible handling of both string and numeric salary encodings
+Für Datei-Uploads werden außerdem die englischen Originalspalten unterstützt:
+`satisfaction_level`, `number_project`, `average_montly_hours`, `Work_accident`,
+`promotion_last_5years` und `salary`.
 
-## Data Visualization
+## Lokal starten
 
-**Components:**
-1. **Feature Importance Chart:** Horizontal bar chart showing relative importance of each feature
-2. **Prediction Distribution:** Bar chart showing model predictions across the dataset
-3. **Data Distribution Plots:** Feature-specific charts (bar charts for categorical, histograms for continuous)
+Voraussetzung ist Python 3.12.
 
-**Dynamic Feature Mapping:**
-- Feature names automatically map to German display labels
-- Charts adapt based on feature type (categorical vs continuous)
+### Windows PowerShell
 
-## Explainable AI Features
+```powershell
+git clone https://github.com/kostasppz/Predict-Employee-Churn.git
+cd Predict-Employee-Churn
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
 
-**Design Philosophy:** Provide transparent, scientifically honest explanations without making invalid claims about local contributions
+### Linux oder macOS
 
-**Components:**
-1. **Value Comparison:** Shows user's input values vs dataset averages with deviation visualization
-2. **Feature Importance:** Displays global model importance for each feature
-3. **Historical Churn Rates:** Calculates actual churn rates for employees with similar feature values
-4. **What-If Analysis:** Sensitivity analysis showing how predictions change when varying individual features
+```bash
+git clone https://github.com/kostasppz/Predict-Employee-Churn.git
+cd Predict-Employee-Churn
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
 
-**Important Note:** After initial attempts to implement invalid local contribution methods, the final implementation uses truthful approaches that don't claim to show additive decompositions when the underlying math doesn't support it.
+Streamlit öffnet die Anwendung standardmäßig unter `http://localhost:8501`.
 
-## Database Integration
+## Auf Streamlit Community Cloud bereitstellen
 
-**Technology:** PostgreSQL with SQLAlchemy ORM
-- **Connection:** Uses DATABASE_URL environment variable
-- **Graceful Degradation:** Application continues to function even if database is unavailable
-- **Schema:** PredictionHistory table with all input features, predictions, probabilities, and timestamps
+1. In Streamlit Community Cloud **Create app** auswählen.
+2. Repository `kostasppz/Predict-Employee-Churn` verbinden.
+3. Branch `main` auswählen.
+4. Als Einstiegspunkt `app.py` eintragen.
+5. Unter **Advanced settings** Python `3.12` auswählen.
+6. **Deploy** starten.
 
-**Analytics:**
-- Total prediction counts
-- Predicted leave vs stay breakdown
-- Average churn probability
-- Time series visualization of predictions
-- Downloadable prediction history (CSV)
+Alle benötigten Python-Pakete stehen fest versioniert in `requirements.txt`. Die Anwendung
+benötigt keine externen Datenbank- oder Plattformdienste. Ports und Containerisierung werden
+von Streamlit Community Cloud verwaltet.
 
-## File Upload Validation
+## Entwicklung und Qualitätssicherung
 
-**Comprehensive Validation:**
-1. Empty file detection
-2. Missing column validation with clear format requirements
-3. Empty row detection and removal
-4. Type validation with try-except error handling
-5. Range validation (satisfaction 0-100, projects 0-7)
-6. Binary field validation (accident and promotion must be 0 or 1)
-7. Salary value validation supporting mixed types and formats
-8. Missing value tracking with percentage reporting
+```bash
+python -m pip install -r requirements-dev.txt
+python -m ruff check .
+python -m pytest -q
+python -m compileall -q app.py modeling.py
+```
 
-**Error Handling:**
-- Detailed row-level error messages showing invalid values
-- Limits error display to first 10 to avoid spam
-- Clear formatting requirements shown to users
-- Graceful halting via st.stop() when errors exist
+Bei jedem Push und Pull Request führt GitHub Actions diese Prüfungen mit Python 3.12 aus.
 
-# External Dependencies
+## Projektstruktur
 
-## Python Libraries
+```text
+.
+├── .github/workflows/ci.yml    # Continuous Integration
+├── .streamlit/config.toml      # Theme und sichere App-Defaults
+├── tests/                      # Daten-, Modell- und Validierungstests
+├── HCM_Employee_Churn.csv      # intakter Quelldatensatz
+├── MODEL_CARD.md               # Einsatzbereich, Messwerte und Grenzen
+├── app.py                      # Streamlit-Oberfläche
+├── modeling.py                 # ML-, Evaluations- und Validierungslogik
+├── pyproject.toml              # Ruff- und Pytest-Konfiguration
+└── requirements.txt            # Community-Cloud-Abhängigkeiten
+```
 
-- **streamlit:** Web application framework
-- **pandas:** Data manipulation and CSV/Excel handling
-- **matplotlib:** Plotting and visualization
-- **seaborn:** Statistical data visualization
-- **scikit-learn:** Machine learning (RandomForestClassifier, train_test_split, accuracy_score)
-- **numpy:** Numerical computing
-- **openpyxl:** Excel file handling
-- **sqlalchemy:** Database ORM
-- **psycopg2-binary:** PostgreSQL adapter
+## Fachliche Grenzen
 
-## Database
+Das Modell kann nur Zusammenhänge aus den sechs vorhandenen Eingabemerkmalen lernen. Abteilung,
+Betriebszugehörigkeit, Funktion, regionale Arbeitsmarktlage und viele weitere mögliche Faktoren
+sind nicht im Datensatz enthalten. Eine seriöse Anwendung kann daher nicht „jedes Detail“ einer
+realen Fluktuationsentscheidung erkennen.
 
-- **PostgreSQL:** Development database accessed via DATABASE_URL
-- **Tables:** prediction_history (tracks all predictions with features and results)
+Vor einem betrieblichen Einsatz sind mindestens folgende Schritte erforderlich:
 
-## Data Sources
-
-- **Training Data:** `modified_file.csv` (required in root directory)
-  - Contains ~15K historical employee records
-  - Columns: zufriedenheitsgrad, anzahl_projekte, durchschnittliche_monatliche_arbeitszeit, arbeitsunfall, foerderung_letzte_5_jahre, gehalt, left
-
-## Deployment Configuration
-
-- **Platform:** Replit
-- **Entry Point:** app.py
-- **Port:** 5000 (configured in .streamlit/config.toml)
-- **Workflow:** `streamlit run app.py --server.port 5000`
-
-# Known Limitations
-
-1. SHAP library incompatible with Python 3.11, so alternative explainability methods were used
-2. Custom model retraining feature not implemented (would require significant additional development)
-3. Database operations are silent on failure to avoid error spam
-4. Department field not included in sidebar inputs (uses default value)
-5. Years at company field not included in sidebar inputs (uses default value)
-
-# Future Enhancement Opportunities
-
-1. Add department and tenure fields to single prediction interface
-2. Implement custom model retraining with user-uploaded datasets
-3. Add more sophisticated explainability if SHAP compatibility is resolved
-4. Implement user authentication and per-user prediction tracking
-5. Add export functionality for visualizations
-6. Create admin dashboard for model performance monitoring
+- Datenherkunft, Rechtsgrundlage und Zweckbindung dokumentieren
+- Arbeitnehmervertretung und Datenschutzbeauftragte einbeziehen
+- Leistung getrennt nach relevanten Gruppen auf Fairness prüfen
+- Daten- und Konzeptdrift regelmäßig überwachen
+- fachliche Prüfung und Einspruchsmöglichkeit sicherstellen
+- ausschließlich unterstützende, positive Bindungsmaßnahmen ableiten

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local settings
+.venv/
+venv/
+.env
+.env.*
+
+# Streamlit secrets must never be committed
+.streamlit/secrets.toml
+
+# Local artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
